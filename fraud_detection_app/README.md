@@ -84,15 +84,18 @@ sample”** on the Home page to explore everything instantly.
 ## 🗺️ Workflow
 
 1. **Data Upload** — drop a CSV (or generate a sample). Sentinel detects the
-   target column, amount column, types, and fraud rate, and shows a data-quality
-   report. Confirm/override the target; choosing “(none)” enables unsupervised mode.
+   target column, types, and fraud rate, and shows a data-quality report.
+   Confirm/override the target; choosing “(none)” enables unsupervised mode.
 2. **EDA** — auto-generated insights, interactive distributions, correlation,
    fraud-by-category, and time trends.
 3. **Preprocessing** — automatic / manual / hybrid feature modes, scaler choice,
    correlation removal, SMOTE. Produces leakage-free train/val/test splits.
-4. **Model Training** — pick classic models + ensembles (+ optional AutoML), set a
-   cost model, train, and compare via table, ROC/PR curves, radar, confusion
-   matrices, and a **business-impact** scorecard. Best model is saved automatically.
+4. **Model Training** — pick classic models + ensembles (+ optional AutoML), train,
+   and compare via table, ROC/PR curves, radar, and confusion matrices. The decision
+   threshold is chosen by **maximising F1 on validation** (no cost model needed), and
+   each model is labelled **underfit / good / overfit** from its train→test AUC gap.
+   A plain **detection summary** (caught / missed / detection rate / false-alarm rate)
+   replaces fabricated dollar figures. Best model is saved automatically.
 5. **Prediction** — single transaction form or batch CSV; supervised or
    unsupervised; each result comes with a risk gauge and the top contributing factors.
 6. **Explainability** — global SHAP/importance, what-if sliders, plain-English

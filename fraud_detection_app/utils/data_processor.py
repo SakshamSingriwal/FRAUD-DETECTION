@@ -50,15 +50,12 @@ def detect_metadata(df: pd.DataFrame) -> dict:
         fraud_count = int(pos.sum())
         fraud_rate = round(fraud_count / max(len(df), 1) * 100, 4)
 
-    amount_col = _guess_amount(df, numeric_cols)
-
     return {
         "n_rows": n_rows, "n_cols": n_cols,
         "numeric_cols": numeric_cols, "categorical_cols": cat_cols,
         "datetime_cols": dt_cols, "binary_cols": binary_cols,
         "target_col": target_col, "problem_type": problem_type,
         "fraud_count": fraud_count, "fraud_rate": fraud_rate,
-        "amount_col": amount_col,
         "missing_total": int(df.isnull().sum().sum()),
         "duplicates": int(df.duplicated().sum()),
         "is_paysim": all(c in df.columns for c in PAYSIM_COLS),
@@ -75,14 +72,6 @@ def _guess_target(df: pd.DataFrame, binary_cols: list[str]) -> str | None:
         if any(h in c.lower() for h in _TARGET_HINTS):
             return c
     return None
-
-
-def _guess_amount(df: pd.DataFrame, numeric_cols: list[str]) -> str | None:
-    lower = {c.lower(): c for c in numeric_cols}
-    for key in ("amount", "amt", "value", "transactionamount"):
-        if key in lower:
-            return lower[key]
-    return numeric_cols[0] if numeric_cols else None
 
 
 def _positive_mask(series: pd.Series) -> pd.Series:
@@ -128,6 +117,83 @@ def _check(name, value, good_max, warn_max, detail):
     return {"check": name, "status": status, "detail": detail}
 
 
+# ── Drift (Population Stability Index) ──────────────────────────────────────────
+def population_stability_index(expected, actual, bins: int = 10) -> float:
+    """PSI between two samples of one feature.
+
+    PSI compares *binned distributions*, not raw means — so it is robust to
+    zero-heavy / count columns where a mean-shift percentage explodes. Standard
+    interpretation: <0.10 stable, 0.10–0.25 moderate shift, >0.25 significant.
+    """
+    expected = np.asarray(expected, dtype=float)
+    actual = np.asarray(actual, dtype=float)
+    expected = expected[~np.isnan(expected)]
+    actual = actual[~np.isnan(actual)]
+    if len(expected) < 10 or len(actual) < 10:
+        return 0.0
+    edges = np.unique(np.quantile(expected, np.linspace(0, 1, bins + 1)))
+    if len(edges) < 3:                       # near-constant feature → no signal
+        return 0.0
+    edges[0], edges[-1] = -np.inf, np.inf
+    e = np.histogram(expected, bins=edges)[0] / len(expected)
+    a = np.histogram(actual, bins=edges)[0] / len(actual)
+    e = np.clip(e, 1e-4, None)
+    a = np.clip(a, 1e-4, None)
+    return float(np.sum((a - e) * np.log(a / e)))
+
+
+def drift_report(df: pd.DataFrame, target_col: str | None = None,
+                 time_col: str | None = None, min_rows: int = 50):
+    """Compare an earlier vs later window of the data, per numeric FEATURE.
+
+    Correctness choices (why the naive 'mean-shift %' check was wrong):
+      * The **target** and **ID-like** columns are excluded — drift is about
+        feature inputs, not the label or random identifiers.
+      * If a temporal column exists (datetime, else 'step'), rows are sorted by
+        it so 'earlier vs later' is meaningful. Without one, we compare two
+        halves of the current order and clearly say drift can't be time-anchored.
+      * PSI (binned) is used instead of mean-shift %, which is undefined/unstable
+        for zero-heavy or near-zero-mean features.
+
+    Returns (report_df, ordering_note).
+    """
+    work = df.copy()
+    order_col = None
+    if time_col and time_col in work.columns:
+        order_col = time_col
+    else:
+        dt = work.select_dtypes(include=["datetime", "datetimetz"]).columns.tolist()
+        if dt:
+            order_col = dt[0]
+        elif "step" in work.columns:
+            order_col = "step"
+    if order_col:
+        work = work.sort_values(order_col)
+
+    exclude = {target_col, order_col}
+    feats = [c for c in work.select_dtypes(include=[np.number]).columns
+             if c not in exclude and not any(h in c.lower() for h in _ID_HINTS)
+             and work[c].nunique(dropna=True) > 1]
+
+    half = len(work) // 2
+    rows = []
+    for c in feats:
+        a = work[c].iloc[:half]
+        b = work[c].iloc[half:]
+        if len(a) < min_rows or len(b) < min_rows:
+            continue
+        psi = population_stability_index(a, b)
+        status = "stable" if psi < 0.10 else ("moderate" if psi < 0.25 else "significant")
+        rows.append({"feature": c, "PSI": round(psi, 3), "status": status})
+
+    report = pd.DataFrame(rows).sort_values("PSI", ascending=False).reset_index(drop=True) \
+        if rows else pd.DataFrame(columns=["feature", "PSI", "status"])
+    note = (f"ordered by `{order_col}`" if order_col
+            else "no time column found — comparing dataset halves in file order "
+                 "(not time-anchored)")
+    return report, note
+
+
 # ── Synthetic data ─────────────────────────────────────────────────────────────
 def generate_synthetic_fraud(n_rows: int = 5000, fraud_rate: float = 0.03,
                              seed: int = RANDOM_STATE) -> pd.DataFrame:
@@ -138,23 +204,39 @@ def generate_synthetic_fraud(n_rows: int = 5000, fraud_rate: float = 0.03,
     rows = []
     types = np.array(TRANSACTION_TYPES)
 
+    # Deliberate class OVERLAP so the data is realistic (not perfectly separable):
+    #   * ~25% of frauds only partially drain the account (look more like legit)
+    #   * ~5% of legit transactions also fully drain (legit large transfers)
+    #   * ~1.5% label noise
+    # This yields AUC well below 1.0 and meaningful precision/recall trade-offs.
     for i in range(n_rows):
         is_fraud = i < n_fraud
         if is_fraud:
-            # Fraud pattern: empty the origin account via TRANSFER / CASH_OUT.
             t = rng.choice(["TRANSFER", "CASH_OUT"])
             old_orig = rng.uniform(1_000, 200_000)
-            amount = old_orig                      # drains the account
-            new_orig = 0.0
+            if rng.random() < 0.25:                # partial-drain fraud (overlaps legit)
+                amount = old_orig * rng.uniform(0.3, 0.9)
+                new_orig = max(old_orig - amount, 0)
+            else:                                  # classic full drain
+                amount = old_orig
+                new_orig = 0.0
             old_dest = 0.0
             new_dest = 0.0 if rng.random() < 0.7 else amount
         else:
             t = rng.choice(types)
             old_orig = rng.uniform(0, 150_000)
-            amount = rng.uniform(1, max(old_orig, 1))
-            new_orig = max(old_orig - amount, 0)
-            old_dest = rng.uniform(0, 80_000)
-            new_dest = old_dest + amount
+            if rng.random() < 0.05 and old_orig > 0:   # legit account-draining transfer
+                amount = old_orig
+                new_orig = 0.0
+                old_dest = 0.0
+                new_dest = amount
+            else:
+                amount = rng.uniform(1, max(old_orig, 1))
+                new_orig = max(old_orig - amount, 0)
+                old_dest = rng.uniform(0, 80_000)
+                new_dest = old_dest + amount
+        if rng.random() < 0.015:                   # label noise
+            is_fraud = not is_fraud
         rows.append({
             "step": int(rng.integers(1, 744)), "type": t, "amount": round(amount, 2),
             "nameOrig": f"C{rng.integers(1e8, 1e9)}", "oldbalanceOrg": round(old_orig, 2),

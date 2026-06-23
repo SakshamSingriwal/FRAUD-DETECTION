@@ -73,7 +73,6 @@ if df is None:
             s.meta = detect_metadata(gen)
             s.target_col = s.meta["target_col"]
             s.problem_type = s.meta["problem_type"]
-            s.amount_col = s.meta["amount_col"]
             st.success(f"Generated {len(gen):,} transactions. Head to **EDA** or **Preprocessing**.")
             st.rerun()
 else:
@@ -83,7 +82,6 @@ else:
         f"- **Dataset:** {n_txn:,} rows × {meta.get('n_cols', '?')} columns"
         f"{' · PaySim schema ✅' if meta.get('is_paysim') else ''}\n"
         f"- **Target:** `{s.get('target_col') or 'none → unsupervised mode'}`\n"
-        f"- **Amount column (for $ impact):** `{s.get('amount_col') or '—'}`\n"
         f"- **Preprocessing:** {'done ✅' if s.get('prep') else 'not run yet'}\n"
         f"- **Best model:** {s.get('best_model_name') or '—'}")
 

@@ -5,6 +5,7 @@ import streamlit as st
 
 from utils.config import setup_page, stat_card, glass_card
 from utils.model_explainer import METRIC_HELP
+from utils.data_processor import drift_report
 
 setup_page("Dashboard", "📊",
            "Executive summary, fraud-pattern library, and a plain-English learning center.")
@@ -34,28 +35,34 @@ with tab_sum:
         m = st.columns(6)
         for col, k in zip(m, ["Accuracy", "Precision", "Recall", "F1", "ROC-AUC", "PR-AUC"]):
             col.metric(k, r.get(k))
+        fit = r.get("Fit", "—")
+        icon = {"good": "🟢", "slight overfit": "🟡", "overfit": "🔴", "underfit": "🟠"}.get(fit, "⚪")
+        st.markdown(f"**Fit diagnosis:** {icon} **{fit}** · train AUC {r.get('Train AUC')} vs "
+                    f"test AUC {r.get('ROC-AUC')} — _{r.get('Fit reason', '')}_")
     else:
         st.info("Train a model to populate the scorecard.")
 
-    # Lightweight data-drift check: compare two halves of the dataset.
+    # ── Data drift (PSI) ────────────────────────────────────────────────────────
     df = s.get("raw_df")
     if df is not None:
-        st.markdown("#### 📉 Data drift snapshot")
-        st.caption("Compares the mean of each numeric feature between the first and second "
-                   "half of the dataset (a quick proxy for distribution drift over time).")
-        num = df.select_dtypes(include=[np.number])
-        if len(num) > 10 and num.shape[1] > 0:
-            half = len(num) // 2
-            a, b = num.iloc[:half].mean(), num.iloc[half:].mean()
-            drift = ((b - a) / (a.abs() + 1e-9) * 100).abs().sort_values(ascending=False)
-            drift_df = pd.DataFrame({"feature": drift.index, "mean shift %": drift.round(1).values}).head(10)
-            st.dataframe(drift_df, use_container_width=True)
-            flagged = drift_df[drift_df["mean shift %"] > 25]
-            if len(flagged):
-                st.warning(f"⚠️ Possible drift in: {', '.join(flagged['feature'])} "
-                           "(>25% mean shift). Consider retraining.")
+        st.markdown("#### 📉 Data drift (Population Stability Index)")
+        report, note = drift_report(df, target_col=s.get("target_col"))
+        st.caption(f"PSI compares the binned distribution of each **feature** in an earlier "
+                   f"vs later window ({note}). Target and ID columns are excluded. "
+                   f"Rule of thumb: <0.10 stable · 0.10–0.25 moderate · >0.25 significant.")
+        if report.empty:
+            st.info("Not enough numeric features / rows to assess drift.")
+        else:
+            st.dataframe(report.head(12), width="stretch")
+            sig = report[report["status"] == "significant"]["feature"].tolist()
+            mod = report[report["status"] == "moderate"]["feature"].tolist()
+            if sig:
+                st.warning(f"⚠️ Significant drift (PSI > 0.25) in: {', '.join(sig)}. "
+                           "If this reflects new time periods, consider retraining.")
+            elif mod:
+                st.info(f"🟡 Moderate drift in: {', '.join(mod)}. Worth monitoring.")
             else:
-                st.success("No major drift detected between dataset halves.")
+                st.success("🟢 No significant feature drift detected.")
 
 # ── Fraud Pattern Library ──────────────────────────────────────────────────────
 with tab_patterns:
@@ -93,9 +100,12 @@ with tab_patterns:
 # ── Learning Center ────────────────────────────────────────────────────────────
 with tab_learn:
     st.markdown("#### 📐 Metric glossary")
-    for metric, (what, why) in METRIC_HELP.items():
+    st.caption("Every score the app reports, in plain English — read it here, then you can "
+               "explain it to anyone.")
+    for metric, (what, why, good) in METRIC_HELP.items():
         with st.expander(metric):
-            st.markdown(f"**What it means:** {what}\n\n**Why it matters:** {why}")
+            st.markdown(f"**What it means:** {what}\n\n**Why it matters:** {why}\n\n"
+                        f"**What's a good value:** {good}")
 
     st.markdown("#### 🧠 Concepts in plain English")
     glass_card("<b>Class imbalance</b><br><span style='color:#8aa0bd'>Fraud is rare (often "
@@ -107,8 +117,13 @@ with tab_learn:
                "it learns 'normal' and flags outliers. Sentinel auto-picks based on your data.</span>")
     glass_card("<b>Decision threshold</b><br><span style='color:#8aa0bd'>Models output a "
                "probability; the threshold turns it into a yes/no. Lower threshold = catch more "
-               "fraud but more false alarms. We tune it on a validation split to minimize your "
-               "cost model, then report on a held-out test set.</span>")
+               "fraud but more false alarms. Sentinel picks the threshold that maximises "
+               "<b>F1</b> on a validation split, then reports on a held-out test set.</span>")
+    glass_card("<b>Under- vs over-fitting</b><br><span style='color:#8aa0bd'>Underfitting = the "
+               "model is too simple to learn the pattern (low train <i>and</i> test scores). "
+               "Overfitting = it memorises training data and fails on new data (high train, low "
+               "test). Sentinel reports the train→test AUC gap and flags both; boosted models use "
+               "early stopping and regularisation to stay in the sweet spot.</span>")
     glass_card("<b>Explainability (SHAP / LIME)</b><br><span style='color:#8aa0bd'>These tools "
                "attribute a prediction to individual features — turning a black box into 'this "
                "was flagged because the origin account was emptied'. Essential for trust.</span>")

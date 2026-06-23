@@ -16,7 +16,6 @@ from .constants import (  # noqa: F401
     APP_NAME, APP_TAGLINE, APP_VERSION,
     NAVY, NAVY_CARD, NAVY_LIGHT, GOLD, GOLD_SOFT, TEXT, TEXT_MUTED, GREEN, RED, AMBER,
     PLOTLY_COLORS, RANDOM_STATE,
-    DEFAULT_COST_FN_RATE, DEFAULT_COST_FP_RATE, DEFAULT_FP_REVIEW_COST,
 )
 
 ASSETS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "assets")
@@ -28,7 +27,6 @@ _DEFAULT_STATE = {
     "meta":            None,   # detected metadata dict
     "target_col":      None,   # chosen target (None => unsupervised)
     "problem_type":    None,   # "supervised" | "unsupervised"
-    "amount_col":      None,   # column holding $ amount (for business impact)
     "prep":            None,   # preprocessing result dict
     "results":         {},     # supervised model results
     "unsup_results":   {},     # unsupervised model results
@@ -36,8 +34,6 @@ _DEFAULT_STATE = {
     "best_model":      None,
     "scaler":          None,
     "feature_cols":    None,
-    "cost_fn":         DEFAULT_COST_FN_RATE,
-    "cost_fp":         DEFAULT_COST_FP_RATE,
 }
 
 

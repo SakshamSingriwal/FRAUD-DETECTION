@@ -6,7 +6,8 @@ import streamlit as st
 from utils.config import setup_page, stat_card, explain
 from utils.model_trainer import (list_supervised_models, train_models, train_automl,
                                  AUTOML_NAMES, save_artifacts, ModelNotPersistableError,
-                                 business_impact)
+                                 detection_summary)
+from utils.model_explainer import METRIC_HELP
 from utils.data_processor import _positive_mask
 from utils import unsupervised as un
 from utils import visualizer as viz
@@ -54,10 +55,10 @@ if prep.get("unsupervised"):
         c1, c2 = st.columns(2)
         with c1:
             st.plotly_chart(viz.anomaly_scatter(prep["X"], r["flagged"], r["risk"]),
-                            use_container_width=True)
+                            width="stretch")
         with c2:
             st.plotly_chart(viz.probability_hist(r["scores"], r["threshold"], "Anomaly score"),
-                            use_container_width=True)
+                            width="stretch")
         # If labels happen to exist, show how well anomalies align with fraud.
         if s.get("raw_df") is not None and s.get("meta", {}).get("target_col"):
             from sklearn.metrics import roc_auc_score
@@ -89,12 +90,15 @@ c1, c2 = st.columns([1, 2])
 with c1:
     time_limit = st.slider("AutoML time budget (s)", 30, 300, 90, 10)
 
-# Cost model for threshold tuning + business impact.
-with st.expander("💰 Cost model (drives threshold tuning & ROI)"):
-    cc1, cc2, cc3 = st.columns(3)
-    s.cost_fn = cc1.number_input("Cost of a missed fraud (FN)", 0.0, 1e6, float(s.get("cost_fn", 1.0)))
-    s.cost_fp = cc2.number_input("Cost of a false alarm (FP)", 0.0, 1e6, float(s.get("cost_fp", 0.1)))
-    fp_review = cc3.number_input("$ to review one false alarm", 0.0, 1e5, 5.0)
+explain(
+    "**How the decision threshold is chosen:** for each model we pick the probability "
+    "cut that **maximises F1 on the validation split**, then report all metrics on the "
+    "untouched test split. F1 balances catching fraud (recall) against false alarms "
+    "(precision) — no business cost assumptions needed.\n\n"
+    "**Avoiding under/over-fitting:** models use regularised settings (shallow trees, "
+    "leaf-size floors, subsampling, L2); boosters use early stopping on the validation "
+    "set. Each model is then labelled **underfit / good / overfit** from its train→test "
+    "AUC gap, shown in the comparison below.")
 
 if not selected:
     st.info("Select at least one model.")
@@ -111,11 +115,11 @@ if st.button("🚀 Train selected models"):
         def cb(frac, name):
             prog.progress(frac * len(classic_sel) / len(selected))
             status.text(f"✅ Trained: {name}")
-        results.update(train_models(classic_sel, prep, s.cost_fn, s.cost_fp, cb))
+        results.update(train_models(classic_sel, prep, progress_cb=cb))
 
     for j, name in enumerate(automl_sel):
         status.text(f"⏳ Running {name} (≤{time_limit}s)…")
-        r = train_automl(name, prep, time_limit, s.cost_fn, s.cost_fp)
+        r = train_automl(name, prep, time_limit)
         if r:
             results[name] = r
         else:
@@ -151,7 +155,8 @@ yte = prep["y_test"]
 
 # ── Comparison table ─────────────────────────────────────────────────────────────
 st.markdown("### 🏁 Comparison")
-metric_cols = ["Accuracy", "Precision", "Recall", "F1", "ROC-AUC", "PR-AUC", "LogLoss", "Threshold", "train_time"]
+metric_cols = ["Train AUC", "ROC-AUC", "PR-AUC", "Precision", "Recall", "F1",
+               "LogLoss", "Fit", "Threshold", "train_time"]
 rows = []
 for name, r in results.items():
     if "error" in r:
@@ -162,41 +167,42 @@ for name, r in results.items():
 table = pd.DataFrame(rows)
 if "ROC-AUC" in table:
     table = table.sort_values("ROC-AUC", ascending=False)
-st.dataframe(table, use_container_width=True)
+st.dataframe(table, width="stretch")
+st.caption("**Train AUC vs ROC-AUC** is the generalisation check: a large gap ⇒ overfitting; "
+           "both low ⇒ underfitting. The **Fit** column states the verdict per model.")
+
+with st.expander("📖 What does each metric mean? (plain English — so you can explain it)"):
+    st.markdown("Every column above, defined simply. **TP/FP/FN/TN** = true/false "
+                "positives/negatives (a positive = a transaction flagged as fraud).")
+    for m in ["ROC-AUC", "PR-AUC", "Recall", "Precision", "F1", "LogLoss",
+              "Train AUC", "Fit", "Threshold"]:
+        what, why, good = METRIC_HELP[m]
+        st.markdown(f"- **{m}** — {what} _{why}_ · **Good:** {good}")
 
 valid = {n: r for n, r in results.items() if "y_proba" in r}
 if valid:
     c1, c2 = st.columns(2)
-    c1.plotly_chart(viz.roc_curves(valid, yte), use_container_width=True)
-    c2.plotly_chart(viz.pr_curves(valid, yte), use_container_width=True)
-    st.plotly_chart(viz.radar(valid), use_container_width=True)
+    c1.plotly_chart(viz.roc_curves(valid, yte), width="stretch")
+    c2.plotly_chart(viz.pr_curves(valid, yte), width="stretch")
+    st.plotly_chart(viz.radar(valid), width="stretch")
 
-# ── Business impact for the best model ───────────────────────────────────────────
+# ── Detection summary for the best model ─────────────────────────────────────────
 if best and best in results:
-    st.markdown("### 💰 Business impact — best model")
-    explain("We translate the test-set confusion matrix into money: fraud **caught** "
-            "(true positives), fraud **missed** (false negatives), and the cost of "
-            "reviewing **false alarms**. Net savings = caught − review cost.")
-    amounts = None
-    if s.get("amount_col") and s.get("raw_df") is not None:
-        # Align amounts to the test rows is non-trivial post-split; use the average
-        # fraud amount as a transparent proxy unless per-row amounts are wired.
-        avg_amt = float(pd.to_numeric(s.raw_df[s.amount_col], errors="coerce").dropna().mean())
-    else:
-        avg_amt = 1000.0
-    bi = business_impact(yte, results[best]["y_pred"], amounts=amounts,
-                         fp_review_cost=fp_review, avg_fraud_amount=avg_amt)
+    st.markdown("### 🎯 Detection summary — best model")
+    explain("Directly observed outcomes on the held-out **test set** (no cost assumptions): "
+            "how much real fraud we caught vs missed, and how many legit transactions were "
+            "wrongly flagged. **Detection rate** = recall; **false-alarm rate** = share of "
+            "legit transactions flagged.")
+    ds = detection_summary(yte, results[best]["y_pred"])
     b1, b2, b3, b4 = st.columns(4)
-    b1.markdown(stat_card("Fraud caught", f"${bi['fraud_caught']:,.0f}",
-                          f"{bi['n_tp']} txns", tone="green"), unsafe_allow_html=True)
-    b2.markdown(stat_card("Fraud missed", f"${bi['fraud_missed']:,.0f}",
-                          f"{bi['n_fn']} txns", tone="red"), unsafe_allow_html=True)
-    b3.markdown(stat_card("False-alarm cost", f"${bi['fp_cost']:,.0f}",
-                          f"{bi['fp_count']} alarms"), unsafe_allow_html=True)
-    b4.markdown(stat_card("Net savings", f"${bi['net_savings']:,.0f}",
-                          f"ROI {bi['roi_pct']}%", tone="green"), unsafe_allow_html=True)
-    st.caption("ℹ️ Dollar figures use the dataset's average amount as a proxy. Wire per-row "
-               "amounts for exact values.")
+    b1.markdown(stat_card("Fraud caught", f"{ds['tp']:,}",
+                          f"of {ds['tp'] + ds['fn']:,} real frauds", tone="green"), unsafe_allow_html=True)
+    b2.markdown(stat_card("Fraud missed", f"{ds['fn']:,}", "false negatives", tone="red"),
+                unsafe_allow_html=True)
+    b3.markdown(stat_card("Detection rate", f"{ds['detection_rate']:.1%}",
+                          "recall on test", tone="green"), unsafe_allow_html=True)
+    b4.markdown(stat_card("False-alarm rate", f"{ds['false_alarm_rate']:.2%}",
+                          f"{ds['fp']:,} legit flagged"), unsafe_allow_html=True)
 
 # ── Per-model details ────────────────────────────────────────────────────────────
 st.markdown("### 🔎 Per-model details")
@@ -208,5 +214,9 @@ for name, r in results.items():
         m = st.columns(5)
         for col, key in zip(m, ["Accuracy", "Precision", "Recall", "F1", "ROC-AUC"]):
             col.metric(key, r.get(key))
+        fit = r.get("Fit", "—")
+        icon = {"good": "🟢", "slight overfit": "🟡", "overfit": "🔴", "underfit": "🟠"}.get(fit, "⚪")
+        st.markdown(f"{icon} **Fit:** {fit} · train AUC {r.get('Train AUC')} vs test AUC "
+                    f"{r.get('ROC-AUC')} — _{r.get('Fit reason', '')}_")
         st.plotly_chart(viz.confusion(r["confusion_matrix"], f"{name} · confusion matrix"),
-                        use_container_width=True)
+                        width="stretch")

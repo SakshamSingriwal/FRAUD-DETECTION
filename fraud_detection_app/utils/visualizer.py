@@ -2,7 +2,7 @@
 visualizer.py — Interactive Plotly charts with the Sentinel dark/gold theme.
 
 Every function returns a ``plotly.graph_objects.Figure`` so pages just call
-``st.plotly_chart(fig, use_container_width=True)``.
+``st.plotly_chart(fig, width="stretch")``.
 """
 from __future__ import annotations
 

@@ -135,20 +135,42 @@ def plain_english_prediction(proba, threshold, factors) -> str:
 
 
 # ── Plain-English metric glossary ────────────────────────────────────────────────
+# Each entry is (what it means, why it matters, what a good value looks like) so a
+# beginner can both read the result AND explain it to someone else.
 METRIC_HELP = {
-    "Accuracy": ("Share of all predictions that were correct.",
-                 "Misleading on imbalanced data — a model can be 99% accurate by "
-                 "calling everything legit. Prefer Recall / PR-AUC for fraud."),
-    "Precision": ("Of the transactions we flagged as fraud, how many really were.",
-                  "High precision = few false alarms to investigate."),
-    "Recall": ("Of all actual frauds, how many we caught.",
-               "High recall = little fraud slips through. Usually the priority."),
-    "F1": ("Balance of Precision and Recall (harmonic mean).",
-           "Good single number when you care about both equally."),
-    "ROC-AUC": ("How well the model ranks a random fraud above a random legit txn.",
-                "0.5 = coin flip, 1.0 = perfect. >0.9 is strong."),
-    "PR-AUC": ("Area under the Precision-Recall curve.",
-               "More informative than ROC-AUC when fraud is rare."),
-    "LogLoss": ("Penalty for confident wrong probabilities (lower is better).",
-                "Rewards well-calibrated probabilities."),
+    "Accuracy": ("Share of all predictions that were correct: (TP+TN) / everything.",
+                 "Misleading on imbalanced data — a model can be 99% accurate by calling "
+                 "everything legit. Prefer Recall / PR-AUC for fraud.",
+                 "High looks nice but ignore it when fraud is rare."),
+    "Precision": ("Of the transactions we flagged as fraud, how many really were: TP / (TP+FP).",
+                  "High precision = few false alarms, so investigators don't waste time.",
+                  ">0.5 is workable; closer to 1.0 means cleaner alerts."),
+    "Recall": ("Of all the real frauds, how many we caught: TP / (TP+FN). Also called "
+               "sensitivity or the true-positive rate.",
+               "High recall = little fraud slips through. Usually the top priority in fraud.",
+               ">0.8 is good; the cost of a missed fraud (FN) is normally high."),
+    "F1": ("The harmonic mean of Precision and Recall — a single score that is only high "
+           "when BOTH are high.",
+           "Best single number when you care about catching fraud and avoiding false alarms.",
+           ">0.7 is solid on imbalanced data."),
+    "ROC-AUC": ("Probability the model ranks a random fraud above a random legit transaction "
+                "(area under the TPR-vs-FPR curve). Threshold-independent.",
+                "Measures ranking quality regardless of the cutoff you pick.",
+                "0.5 = coin flip · 0.8 good · >0.9 strong · 1.0 = perfect (suspicious)."),
+    "PR-AUC": ("Area under the Precision-Recall curve (a.k.a. average precision).",
+               "More honest than ROC-AUC when fraud is rare, because it ignores the easy "
+               "true negatives and focuses on the positive (fraud) class.",
+               "Compare against the fraud rate — a 3% fraud rate makes 0.5 PR-AUC strong."),
+    "LogLoss": ("Penalty for confident-but-wrong probabilities (lower is better).",
+                "Rewards well-calibrated probabilities, not just correct yes/no calls.",
+                "Lower is better; ~0 is perfect, 0.69 ≈ random guessing."),
+    "Train AUC": ("ROC-AUC measured on the data the model was trained on.",
+                  "Compared against test ROC-AUC, it reveals over/under-fitting.",
+                  "Should be close to test AUC — a big gap means overfitting."),
+    "Fit": ("Verdict from the train→test AUC gap: underfit / good / overfit.",
+            "Tells you whether the model is too simple, just right, or memorising.",
+            "Aim for 'good' (small gap, strong test score)."),
+    "Threshold": ("The probability cut-off that turns a score into a fraud/legit decision.",
+                  "Sentinel picks the value that maximises F1 on the validation split.",
+                  "Lower → catch more fraud but more false alarms; higher → the reverse."),
 }

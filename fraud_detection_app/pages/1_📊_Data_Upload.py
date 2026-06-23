@@ -43,18 +43,12 @@ s.meta = meta
 
 # Let the user confirm / override the auto-detected target.
 st.markdown("### 🎯 Dataset configuration")
-c1, c2 = st.columns(2)
-with c1:
-    options = ["(none → unsupervised)"] + list(df.columns)
-    default = df.columns.get_loc(meta["target_col"]) + 1 if meta["target_col"] else 0
-    choice = st.selectbox("Target column", options, index=default,
-                          help="The fraud/label column. Choose '(none)' to run label-free anomaly detection.")
-    s.target_col = None if choice.startswith("(none") else choice
-    s.problem_type = "unsupervised" if s.target_col is None else "supervised"
-with c2:
-    num_cols = meta["numeric_cols"] or list(df.columns)
-    amt_default = num_cols.index(meta["amount_col"]) if meta["amount_col"] in num_cols else 0
-    s.amount_col = st.selectbox("Amount column (for $ business impact)", num_cols, index=amt_default)
+options = ["(none → unsupervised)"] + list(df.columns)
+default = df.columns.get_loc(meta["target_col"]) + 1 if meta["target_col"] else 0
+choice = st.selectbox("Target column", options, index=default,
+                      help="The fraud/label column. Choose '(none)' to run label-free anomaly detection.")
+s.target_col = None if choice.startswith("(none") else choice
+s.problem_type = "unsupervised" if s.target_col is None else "supervised"
 
 badge = "🟢 Supervised — labels detected" if s.problem_type == "supervised" \
         else "🟣 Unsupervised — no labels, anomaly detection mode"
@@ -91,8 +85,8 @@ for r in data_quality_report(df):
 
 # ── Preview ───────────────────────────────────────────────────────────────────
 with st.expander("📄 Data preview", expanded=True):
-    st.dataframe(df.head(200), use_container_width=True)
+    st.dataframe(df.head(200), width="stretch")
 with st.expander("📊 Summary statistics"):
-    st.dataframe(df.describe(include="all").T, use_container_width=True)
+    st.dataframe(df.describe(include="all").T, width="stretch")
 
 st.success("✅ Configuration saved. Continue to **EDA** or **Preprocessing**.")

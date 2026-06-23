@@ -24,7 +24,7 @@ from sklearn.ensemble import (RandomForestClassifier, GradientBoostingClassifier
                               StackingClassifier, VotingClassifier, IsolationForest)
 from sklearn.metrics import (accuracy_score, precision_score, recall_score, f1_score,
                              roc_auc_score, average_precision_score, log_loss,
-                             confusion_matrix)
+                             confusion_matrix, precision_recall_curve)
 
 from .constants import RANDOM_STATE
 
@@ -92,17 +92,25 @@ class IsolationForestWrapper:
 
 
 # ── Threshold & evaluation ───────────────────────────────────────────────────────
-def find_optimal_threshold(y_true, y_proba, cost_fn=1.0, cost_fp=0.1):
+def best_threshold(y_true, y_proba, beta: float = 1.0) -> float:
+    """Pick the probability cut that maximises the F-beta score on the given
+    (validation) data.
+
+    Why F-beta instead of a cost model: it needs no business assumptions, is
+    well-defined for any dataset, and directly balances catching fraud (recall)
+    against false alarms (precision). beta=1 → F1 (balanced). The threshold is
+    chosen on validation only; the test set stays untouched.
+    """
     y_true = np.asarray(y_true)
-    best_t, best_c = 0.5, np.inf
-    for t in np.linspace(0.01, 0.99, 200):
-        pred = (y_proba >= t).astype(int)
-        fn = int(((pred == 0) & (y_true == 1)).sum())
-        fp = int(((pred == 1) & (y_true == 0)).sum())
-        c = cost_fn * fn + cost_fp * fp
-        if c < best_c:
-            best_c, best_t = c, t
-    return best_t, best_c
+    if y_true.min() == y_true.max():          # single class → nothing to tune
+        return 0.5
+    prec, rec, thr = precision_recall_curve(y_true, y_proba)
+    prec, rec = prec[:-1], rec[:-1]           # align with the thr array
+    denom = (beta ** 2) * prec + rec
+    fbeta = np.where(denom > 0, (1 + beta ** 2) * prec * rec / denom, 0.0)
+    if len(thr) == 0:
+        return 0.5
+    return float(np.clip(thr[int(np.argmax(fbeta))], 0.01, 0.99))
 
 
 def _safe(fn, *a, default=float("nan")):
@@ -112,22 +120,54 @@ def _safe(fn, *a, default=float("nan")):
         return default
 
 
-def evaluate(model, X_val, y_val, X_test, y_test, cost_fn=1.0, cost_fp=0.1) -> dict:
-    """Tune threshold on validation, report all metrics on the untouched test."""
-    y_val, y_test = np.asarray(y_val), np.asarray(y_test)
-    val_proba = get_proba(model, X_val)
-    threshold, _ = find_optimal_threshold(y_val, val_proba, cost_fn, cost_fp)
+def _fit_diagnosis(train_auc, test_auc, test_pr_auc) -> tuple[str, str]:
+    """Label a model as underfit / overfit / good from the train-vs-test gap.
+
+    Logic (standard bias-variance reasoning):
+      * Underfit  — even the training fit is weak (train AUC < 0.75): the model
+        is too simple / features too weak; both train and test are low.
+      * Overfit   — large train→test generalisation gap (> 0.10 AUC): the model
+        memorised the training data and degrades on unseen data.
+      * Good      — strong test performance and a small gap.
+    """
+    gap = (train_auc or 0) - (test_auc or 0)
+    if (train_auc or 0) < 0.75 and (test_auc or 0) < 0.75:
+        return "underfit", f"train AUC {train_auc:.2f} is low — model too simple / weak signal"
+    if gap > 0.10:
+        return "overfit", f"train−test AUC gap {gap:.2f} is large — memorising training data"
+    if gap > 0.05:
+        return "slight overfit", f"train−test AUC gap {gap:.2f} — mild variance, acceptable"
+    return "good", f"train−test AUC gap {gap:.2f} — generalises well"
+
+
+def evaluate(model, X_train, y_train, X_val, y_val, X_test, y_test, beta: float = 1.0) -> dict:
+    """Tune the threshold on validation (F-beta), report every metric on the
+    untouched test set, and diagnose under/over-fitting from the train-vs-test
+    ROC-AUC gap."""
+    y_train = np.asarray(y_train); y_val = np.asarray(y_val); y_test = np.asarray(y_test)
+
+    threshold = best_threshold(y_val, get_proba(model, X_val), beta)
 
     proba = get_proba(model, X_test)
     pred = (proba >= threshold).astype(int)
+
+    # Train-vs-test generalisation check (overfitting/underfitting signal).
+    train_auc = _safe(roc_auc_score, y_train, get_proba(model, X_train))
+    test_auc = _safe(roc_auc_score, y_test, proba)
+    test_pr = _safe(average_precision_score, y_test, proba)
+    status, reason = _fit_diagnosis(train_auc, test_auc, test_pr)
+
     return {
         "Accuracy":  _safe(accuracy_score, y_test, pred),
         "Precision": _safe(precision_score, y_test, pred, default=0.0),
         "Recall":    _safe(recall_score, y_test, pred, default=0.0),
         "F1":        _safe(f1_score, y_test, pred, default=0.0),
-        "ROC-AUC":   _safe(roc_auc_score, y_test, proba),
-        "PR-AUC":    _safe(average_precision_score, y_test, proba),
+        "ROC-AUC":   test_auc,
+        "PR-AUC":    test_pr,
         "LogLoss":   _safe(log_loss, y_test, np.clip(proba, 1e-6, 1 - 1e-6)),
+        "Train AUC": train_auc,
+        "Fit":       status,
+        "Fit reason": reason,
         "Threshold": round(threshold, 4),
         "y_proba": proba, "y_pred": pred,
         "confusion_matrix": confusion_matrix(y_test, pred),
@@ -135,6 +175,11 @@ def evaluate(model, X_val, y_val, X_test, y_test, cost_fn=1.0, cost_fp=0.1) -> d
 
 
 # ── Registry ──────────────────────────────────────────────────────────────────────
+# Hyper-parameters are deliberately *regularised* to keep variance in check:
+# shallow trees, leaf-size floors, row/column subsampling, and L2 penalties.
+# Boosters get many small trees + a learning rate and rely on early stopping
+# (see ``_fit``) to choose how many to actually keep — so they neither underfit
+# (too few trees) nor overfit (too many).
 def build_registry(use_class_weights: bool = False, rs: int = RANDOM_STATE) -> dict:
     """Supervised models. ``use_class_weights`` MUST be False when SMOTE is used
     (otherwise imbalance is corrected twice)."""
@@ -142,41 +187,88 @@ def build_registry(use_class_weights: bool = False, rs: int = RANDOM_STATE) -> d
     spw = 10 if use_class_weights else 1.0
 
     reg = {
-        "Logistic Regression": LogisticRegression(max_iter=1000, class_weight=cw, random_state=rs),
-        "Decision Tree": DecisionTreeClassifier(max_depth=8, class_weight=cw, random_state=rs),
-        "Random Forest": RandomForestClassifier(n_estimators=200, class_weight=cw, n_jobs=-1, random_state=rs),
-        "Gradient Boosting": GradientBoostingClassifier(n_estimators=120, random_state=rs),
+        # C=1.0 L2 regularisation; lbfgs is stable for this scale.
+        "Logistic Regression": LogisticRegression(C=1.0, max_iter=1000, class_weight=cw, random_state=rs),
+        # Depth + leaf floor stop the tree from memorising rare rows.
+        "Decision Tree": DecisionTreeClassifier(max_depth=6, min_samples_leaf=20,
+                                                class_weight=cw, random_state=rs),
+        # Bagging + leaf floor + feature subsampling reduce variance.
+        "Random Forest": RandomForestClassifier(n_estimators=300, max_depth=12,
+                                                min_samples_leaf=5, max_features="sqrt",
+                                                class_weight=cw, n_jobs=-1, random_state=rs),
+        # Shallow boosted stumps + slow learning + row subsampling.
+        "Gradient Boosting": GradientBoostingClassifier(n_estimators=300, learning_rate=0.05,
+                                                        max_depth=3, subsample=0.8, random_state=rs),
     }
     try:
         from xgboost import XGBClassifier
-        reg["XGBoost"] = XGBClassifier(n_estimators=200, scale_pos_weight=spw,
-                                       eval_metric="logloss", n_jobs=-1, verbosity=0, random_state=rs)
+        reg["XGBoost"] = XGBClassifier(
+            n_estimators=600, learning_rate=0.05, max_depth=4, subsample=0.8,
+            colsample_bytree=0.8, min_child_weight=5, reg_lambda=1.0, gamma=0.0,
+            scale_pos_weight=spw, eval_metric="logloss", n_jobs=-1, verbosity=0, random_state=rs)
     except ImportError:
         pass
     try:
         from lightgbm import LGBMClassifier
-        reg["LightGBM"] = LGBMClassifier(n_estimators=200, class_weight=cw, n_jobs=-1,
-                                         verbose=-1, random_state=rs)
+        reg["LightGBM"] = LGBMClassifier(
+            n_estimators=600, learning_rate=0.05, num_leaves=31, max_depth=-1,
+            min_child_samples=30, subsample=0.8, subsample_freq=1, colsample_bytree=0.8,
+            reg_lambda=1.0, class_weight=cw, n_jobs=-1, verbose=-1, random_state=rs)
     except ImportError:
         pass
     try:
         from catboost import CatBoostClassifier
-        reg["CatBoost"] = CatBoostClassifier(iterations=200, verbose=0, random_seed=rs,
-                                             auto_class_weights=("Balanced" if use_class_weights else None))
+        reg["CatBoost"] = CatBoostClassifier(
+            iterations=600, learning_rate=0.05, depth=4, l2_leaf_reg=3.0,
+            verbose=0, random_seed=rs,
+            auto_class_weights=("Balanced" if use_class_weights else None))
     except ImportError:
         pass
 
     reg["Isolation Forest"] = IsolationForestWrapper(contamination=0.05, n_jobs=-1, random_state=rs)
 
-    base = [("lr", LogisticRegression(max_iter=500, class_weight=cw, random_state=rs)),
-            ("dt", DecisionTreeClassifier(max_depth=6, class_weight=cw, random_state=rs))]
+    base = [("lr", LogisticRegression(C=1.0, max_iter=500, class_weight=cw, random_state=rs)),
+            ("dt", DecisionTreeClassifier(max_depth=6, min_samples_leaf=20, class_weight=cw, random_state=rs))]
     if "Random Forest" in reg:
-        base.append(("rf", RandomForestClassifier(n_estimators=100, class_weight=cw,
+        base.append(("rf", RandomForestClassifier(n_estimators=200, max_depth=12, min_samples_leaf=5,
+                                                   max_features="sqrt", class_weight=cw,
                                                    n_jobs=-1, random_state=rs)))
     reg["Stacking Ensemble"] = StackingClassifier(
-        estimators=base, final_estimator=LogisticRegression(class_weight=cw, random_state=rs), n_jobs=-1)
+        estimators=base, final_estimator=LogisticRegression(class_weight=cw, random_state=rs),
+        cv=5, n_jobs=-1)
     reg["Voting Ensemble"] = VotingClassifier(estimators=base, voting="soft", n_jobs=-1)
     return reg
+
+
+# Models that support early stopping on a validation set.
+_EARLY_STOP = {"XGBoost", "LightGBM", "CatBoost"}
+
+
+def _fit(model, name, Xtr, ytr, Xvl, yvl):
+    """Fit a model, using early stopping on the validation set for the boosters
+    so they keep just enough trees — defensive against library-version
+    differences (falls back to a plain fit if the early-stopping API differs)."""
+    if name == "Isolation Forest":
+        return model.fit(Xtr)                         # unsupervised; ignores y
+    if name in _EARLY_STOP:
+        try:
+            if name == "XGBoost":
+                try:                                  # xgboost >= 1.6 ctor arg
+                    model.set_params(early_stopping_rounds=40)
+                    return model.fit(Xtr, ytr, eval_set=[(Xvl, yvl)], verbose=False)
+                except TypeError:
+                    return model.fit(Xtr, ytr, eval_set=[(Xvl, yvl)],
+                                     early_stopping_rounds=40, verbose=False)
+            if name == "LightGBM":
+                import lightgbm as lgb
+                return model.fit(Xtr, ytr, eval_set=[(Xvl, yvl)], eval_metric="auc",
+                                 callbacks=[lgb.early_stopping(40, verbose=False)])
+            if name == "CatBoost":
+                return model.fit(Xtr, ytr, eval_set=(Xvl, yvl),
+                                 early_stopping_rounds=40, verbose=False)
+        except Exception:
+            pass                                      # fall through to plain fit
+    return model.fit(Xtr, ytr)
 
 
 def list_supervised_models() -> list[str]:
@@ -184,7 +276,7 @@ def list_supervised_models() -> list[str]:
 
 
 # ── Training ──────────────────────────────────────────────────────────────────────
-def train_models(selected, prep, cost_fn=1.0, cost_fp=0.1, progress_cb=None) -> dict:
+def train_models(selected, prep, beta: float = 1.0, progress_cb=None) -> dict:
     use_cw = not prep.get("apply_smote", False)
     reg = build_registry(use_class_weights=use_cw)
     Xtr, ytr = prep["X_train"], prep["y_train"]
@@ -198,11 +290,8 @@ def train_models(selected, prep, cost_fn=1.0, cost_fp=0.1, progress_cb=None) -> 
         model = reg[name]
         t0 = time.time()
         try:
-            if name == "Isolation Forest":
-                model.fit(Xtr)            # unsupervised; wrapper stores scaling
-            else:
-                model.fit(Xtr, ytr)
-            m = evaluate(model, Xvl, yvl, Xte, yte, cost_fn, cost_fp)
+            _fit(model, name, Xtr, ytr, Xvl, yvl)   # early stopping for boosters
+            m = evaluate(model, Xtr, ytr, Xvl, yvl, Xte, yte, beta)
             m["model"] = model
             m["train_time"] = round(time.time() - t0, 2)
             results[name] = m
@@ -213,7 +302,7 @@ def train_models(selected, prep, cost_fn=1.0, cost_fp=0.1, progress_cb=None) -> 
     return results
 
 
-def train_automl(name, prep, time_limit=120, cost_fn=1.0, cost_fp=0.1):
+def train_automl(name, prep, time_limit=120, beta: float = 1.0):
     """Best-effort AutoML. Returns a result dict or None if the framework is not
     installed / fails. Scored with the same val/test discipline."""
     Xtr, ytr = prep["X_train"], prep["y_train"]
@@ -242,7 +331,7 @@ def train_automl(name, prep, time_limit=120, cost_fn=1.0, cost_fp=0.1):
                                      verbosity=0).fit(tdf, time_limit=time_limit)
         else:
             return None
-        m = evaluate(model, Xvl, yvl, Xte, yte, cost_fn, cost_fp)
+        m = evaluate(model, Xtr, ytr, Xvl, yvl, Xte, yte, beta)
         m["model"] = model
         m["train_time"] = round(time.time() - t0, 2)
         m["is_automl"] = True
@@ -289,34 +378,26 @@ def load_artifacts():
     }
 
 
-# ── Business impact ──────────────────────────────────────────────────────────────
-def business_impact(y_true, y_pred, amounts=None, fp_review_cost=5.0,
-                    avg_fraud_amount=None) -> dict:
-    """Translate a confusion matrix into dollars.
+# ── Detection summary ──────────────────────────────────────────────────────────
+def detection_summary(y_true, y_pred) -> dict:
+    """Plain confusion-matrix outcomes on the test set — no cost assumptions.
 
-    ``amounts`` (per-row $) is used when available; otherwise a flat
-    ``avg_fraud_amount`` is assumed. Net savings = fraud caught − FP review cost.
+    Reports the four cells plus the two rates that matter for fraud:
+      * detection rate (recall)  — share of real fraud we caught
+      * false-alarm rate         — share of legit txns wrongly flagged
+    Everything here is directly observed on the held-out test set, so it needs
+    no fabricated dollar figures to be meaningful.
     """
     y_true = np.asarray(y_true); y_pred = np.asarray(y_pred)
-    tp = (y_pred == 1) & (y_true == 1)
-    fn = (y_pred == 0) & (y_true == 1)
-    fp = (y_pred == 1) & (y_true == 0)
-
-    if amounts is not None:
-        amounts = np.asarray(amounts, dtype=float)
-        caught = float(amounts[tp].sum())
-        missed = float(amounts[fn].sum())
-    else:
-        avg = avg_fraud_amount or 1000.0
-        caught = float(tp.sum() * avg)
-        missed = float(fn.sum() * avg)
-
-    fp_cost = float(fp.sum() * fp_review_cost)
-    net = caught - fp_cost
+    tp = int(((y_pred == 1) & (y_true == 1)).sum())
+    fn = int(((y_pred == 0) & (y_true == 1)).sum())
+    fp = int(((y_pred == 1) & (y_true == 0)).sum())
+    tn = int(((y_pred == 0) & (y_true == 0)).sum())
+    pos = tp + fn
+    neg = tn + fp
     return {
-        "fraud_caught": caught, "fraud_missed": missed,
-        "fp_count": int(fp.sum()), "fp_cost": fp_cost,
-        "net_savings": net,
-        "roi_pct": round((net / fp_cost * 100), 1) if fp_cost > 0 else float("inf"),
-        "n_tp": int(tp.sum()), "n_fn": int(fn.sum()),
+        "tp": tp, "fn": fn, "fp": fp, "tn": tn,
+        "detection_rate": (tp / pos) if pos else 0.0,        # recall
+        "false_alarm_rate": (fp / neg) if neg else 0.0,
+        "precision": (tp / (tp + fp)) if (tp + fp) else 0.0,
     }

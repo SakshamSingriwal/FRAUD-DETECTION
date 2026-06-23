@@ -110,7 +110,7 @@ else:
         st.markdown("**Class balance after SMOTE:**")
         st.plotly_chart(viz.class_distribution(
             np.r_[np.zeros(bal.get(0, 0)), np.ones(bal.get(1, 0))], "Training set"),
-            use_container_width=True)
+            width="stretch")
 
 with st.expander("📋 Final feature columns"):
-    st.dataframe(pd.DataFrame({"Feature": prep["feature_cols"]}), use_container_width=True)
+    st.dataframe(pd.DataFrame({"Feature": prep["feature_cols"]}), width="stretch")

@@ -66,14 +66,14 @@ if target is not None:
     c1, c2 = st.columns(2)
     with c1:
         st.plotly_chart(viz.class_distribution(pos_mask.astype(int), target),
-                        use_container_width=True)
+                        width="stretch")
     with c2:
         cats = [c for c in df.select_dtypes(include=["object", "category"]).columns
                 if 1 < df[c].nunique() <= 20]
         if cats:
             cc = st.selectbox("Fraud rate by category", cats)
             st.plotly_chart(viz.fraud_rate_by_category(df, cc, pos_mask),
-                            use_container_width=True)
+                            width="stretch")
 
 # ── Distribution explorer ──────────────────────────────────────────────────────
 st.markdown("### 🔬 Distribution explorer")
@@ -81,11 +81,11 @@ num_cols = [c for c in df.select_dtypes(include=[np.number]).columns if c != tar
 if num_cols:
     col = st.selectbox("Column", num_cols)
     st.plotly_chart(viz.distribution(df[col], col, by=pos_mask.astype(int) if target else None),
-                    use_container_width=True)
+                    width="stretch")
 
 # ── Correlation ────────────────────────────────────────────────────────────────
 st.markdown("### 🧭 Correlation heatmap")
-st.plotly_chart(viz.correlation_heatmap(df), use_container_width=True)
+st.plotly_chart(viz.correlation_heatmap(df), width="stretch")
 
 # ── Time analysis ──────────────────────────────────────────────────────────────
 if "step" in df.columns and target is not None:
@@ -96,4 +96,4 @@ if "step" in df.columns and target is not None:
     fig = go.Figure(go.Scatter(x=by_step.index, y=by_step.values, mode="lines",
                                line=dict(color="#f7b731", width=2)))
     fig.update_layout(xaxis_title="Day (step // 24)", yaxis_title="Fraud rate")
-    st.plotly_chart(viz._style(fig, "Fraud rate over time"), use_container_width=True)
+    st.plotly_chart(viz._style(fig, "Fraud rate over time"), width="stretch")

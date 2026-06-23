@@ -112,7 +112,7 @@ with tabs[0]:
         c1, c2 = st.columns([1, 1])
         with c1:
             st.plotly_chart(viz.gauge(proba, "Risk" if unsup else "Fraud probability"),
-                            use_container_width=True)
+                            width="stretch")
         with c2:
             if unsup:
                 st.markdown("**Why this is unusual:**")
@@ -121,7 +121,7 @@ with tabs[0]:
                     st.markdown(f"- `{e['feature']}` {e['direction']} (z={e['z']})")
             else:
                 st.markdown(plain_english_prediction(proba, threshold, factors))
-                st.plotly_chart(viz.waterfall_factors(factors), use_container_width=True)
+                st.plotly_chart(viz.waterfall_factors(factors), width="stretch")
 
 # ════════════════════════════════════════════════════════════════════════════════
 # BATCH PREDICTION
@@ -160,13 +160,13 @@ with tabs[1]:
     c1.metric("Transactions", f"{len(out):,}")
     c2.metric("Flagged", f"{n_flag:,}")
     c3.metric("Flag rate", f"{n_flag/len(out)*100:.2f}%")
-    st.plotly_chart(viz.probability_hist(proba, threshold), use_container_width=True)
+    st.plotly_chart(viz.probability_hist(proba, threshold), width="stretch")
 
     st.markdown("##### 🔴 Top 10 most suspicious")
     show = [c for c in ["type", "amount", "nameOrig", "nameDest"] if c in out.columns] + \
            ["fraud_probability", "prediction"]
     st.dataframe(out.sort_values("fraud_probability", ascending=False).head(10)[show],
-                 use_container_width=True)
+                 width="stretch")
 
     st.download_button("⬇️ Download predictions", out.to_csv(index=False).encode("utf-8"),
                        "predictions.csv", "text/csv")

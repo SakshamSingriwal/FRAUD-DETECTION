@@ -34,7 +34,7 @@ explain("Which features the model relies on most across all transactions. SHAP m
 with st.spinner("Computing importance…"):
     imp = global_importance(model, X_test, feature_cols)
 st.caption(f"Method: **{imp['method'].iloc[0]}**")
-st.plotly_chart(viz.feature_importance(imp), use_container_width=True)
+st.plotly_chart(viz.feature_importance(imp), width="stretch")
 
 # ── SHAP summary ─────────────────────────────────────────────────────────────────
 if shap_available():
@@ -42,7 +42,7 @@ if shap_available():
     sv = shap_values_for(model, X_test, feature_cols)
     if sv is not None:
         arr, _ = sv
-        st.plotly_chart(viz.shap_summary_bar(arr, feature_cols), use_container_width=True)
+        st.plotly_chart(viz.shap_summary_bar(arr, feature_cols), width="stretch")
     else:
         st.caption("SHAP could not explain this model type; see importance above.")
 
@@ -66,7 +66,7 @@ factors = top_risk_factors(model, x, feature_cols)
 
 c1, c2 = st.columns([1, 1])
 with c1:
-    st.plotly_chart(viz.gauge(proba, "Fraud probability"), use_container_width=True)
+    st.plotly_chart(viz.gauge(proba, "Fraud probability"), width="stretch")
 with c2:
     st.markdown(plain_english_prediction(proba, threshold, factors))
-    st.plotly_chart(viz.waterfall_factors(factors), use_container_width=True)
+    st.plotly_chart(viz.waterfall_factors(factors), width="stretch")
