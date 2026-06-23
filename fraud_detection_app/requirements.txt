@@ -1,0 +1,39 @@
+# ════════════════════════════════════════════════════════════════════════════
+# Sentinel — core dependencies (the app runs fully on just these)
+# ════════════════════════════════════════════════════════════════════════════
+streamlit>=1.38.0
+pandas>=2.0.0
+numpy>=1.24.0
+scikit-learn>=1.3.0
+imbalanced-learn>=0.11.0
+joblib>=1.3.0
+
+# ── Interactive visualization
+plotly>=5.18.0
+
+# ── Gradient boosting (each is optional; the registry skips any that are missing)
+xgboost>=2.0.0
+lightgbm>=4.0.0
+catboost>=1.2.0
+
+# ── Explainability (optional but recommended — graceful fallback if absent)
+shap>=0.44.0
+
+# ── Export helpers
+openpyxl>=3.1.0
+xlsxwriter>=3.1.0
+
+# ════════════════════════════════════════════════════════════════════════════
+# OPTIONAL heavy extras — install ONLY what you need, in a SEPARATE environment.
+# ⚠️ These do NOT all coexist: AutoGluon/H2O/TPOT/PyCaret pin conflicting
+# versions of scikit-learn/numpy, and TensorFlow+Torch+DGL together are very
+# large. Every one is lazy-loaded, so the app degrades gracefully when missing.
+# See README "Optional integrations".
+# ════════════════════════════════════════════════════════════════════════════
+# flaml>=2.2.0              # fast AutoML — lightest option, recommended first
+# h2o>=3.44.0               # enterprise AutoML (needs Java)
+# autogluon.tabular>=1.0.0  # state-of-the-art AutoML (large)
+# tpot>=0.12.0              # genetic-programming AutoML
+# tensorflow>=2.15.0        # enables the deep autoencoder detector
+# lime>=0.2.0               # alternative local explanations
+# matplotlib>=3.7.0         # only if you add SHAP's native plots
