@@ -16,6 +16,8 @@ lightgbm>=4.0.0
 catboost>=1.2.0
 
 # ── AutoML (optional — comment out if not needed)
+# NOTE: AutoML leaders are NOT persisted to disk (not joblib-safe); they are
+# available for the current session only. See CHANGELOG.md (Bug #1).
 # autogluon.tabular>=1.0.0   # pip install autogluon.tabular
 # h2o>=3.44.0                # pip install h2o
 # TPOT is not included by default due to dependency conflicts

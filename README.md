@@ -1,6 +1,14 @@
-# 🔍 Fraud Detection Studio — Streamlit App
+# 🛡️ Fraud Detection Studio v2.1
 
-A production-ready, end-to-end fraud detection pipeline wrapped in a clean Streamlit interface. Covers EDA → feature engineering → model training → threshold tuning → single/batch prediction.
+A production-ready, end-to-end fraud detection pipeline wrapped in a clean dark Streamlit UI.  
+Covers **EDA → target selection → feature engineering (auto or manual) → model training → threshold tuning → single/batch prediction**.
+
+> **v2.1** fixes five correctness bugs that silently produced wrong results
+> (see [`CHANGELOG.md`](CHANGELOG.md)). Notably: the decision threshold is now
+> tuned on a dedicated **validation split** and reported on an untouched **test
+> split**; class imbalance is corrected **once** (SMOTE *or* class weights);
+> Isolation Forest single-row scoring works; AutoML models score correctly; and
+> every model is seeded for reproducibility.
 
 ---
 
@@ -9,17 +17,16 @@ A production-ready, end-to-end fraud detection pipeline wrapped in a clean Strea
 ```
 fraud_detection_app/
 ├── app.py              # Main Streamlit application
-├── utils.py            # All helper functions (feature engineering, training, evaluation, prediction)
+├── utils.py            # Helper functions (feature engineering, training, prediction)
 ├── requirements.txt    # Python dependencies
+├── CHANGELOG.md        # What changed in v2.0
 ├── README.md           # This file
-└── models/             # Auto-created; stores trained model, scaler, feature columns
+└── models/             # Auto-created; stores trained model, scaler, feature columns, config
 ```
 
 ---
 
 ## 🚀 Quick Start
-
-### 1. Create a virtual environment (recommended)
 
 ```bash
 python -m venv venv
@@ -27,27 +34,12 @@ python -m venv venv
 venv\Scripts\activate
 # macOS/Linux
 source venv/bin/activate
-```
 
-### 2. Install dependencies
-
-```bash
 pip install -r requirements.txt
-```
-
-> **Optional AutoML libraries** (comment them back into requirements.txt if needed):
-> ```bash
-> pip install autogluon.tabular   # AutoGluon
-> pip install h2o                  # H2O AutoML
-> ```
-
-### 3. Run the app
-
-```bash
 streamlit run app.py
 ```
 
-The app opens at `http://localhost:8501`.
+Opens at `http://localhost:8501`.
 
 ---
 
@@ -55,45 +47,44 @@ The app opens at `http://localhost:8501`.
 
 | Page | What it does |
 |------|-------------|
-| **📊 Data Upload & EDA** | Upload your training CSV. See class distribution, fraud rates by type, correlation heatmap, and basic stats. |
-| **🔧 Feature Engineering** | Automatically creates 15+ features, removes correlated ones, scales, and applies SMOTE. |
-| **🤖 Model Training** | Select and train up to 11 models including XGBoost, LightGBM, CatBoost, Stacking Ensemble, and AutoML. Compare by ROC-AUC, F1, and cost. Downloads the best model. |
-| **🎯 Single Prediction** | Fill a form with one transaction's details. Instantly see fraud probability and decision. |
-| **📁 Batch Prediction** | Upload a new CSV. Get fraud scores, top 10 suspicious transactions, probability histogram, and a downloadable results file. |
+| **📊 Data Upload & EDA** | Upload CSV. **Select target column.** Choose Automatic or Manual feature mode. Explore class distribution, correlation heatmap, transaction types. |
+| **🔧 Feature Engineering** | Configure test size, SMOTE, correlation threshold and run the preprocessing pipeline. |
+| **🤖 Model Training** | Select and train up to 11 models. Compare by ROC-AUC, F1, and cost. Download the best model. |
+| **🎯 Single Prediction** | Dynamic form matching your feature mode. Animated FRAUD / LEGIT result card. |
+| **📁 Batch Prediction** | Upload a CSV. Get fraud scores, top 10 suspicious rows, probability histogram, download results. |
 
 ---
 
-## 📦 Expected CSV Columns (Training)
+## ⚙️ New in v2.0: User-Selectable Target & Feature Mode
 
+### Target Column Selection
+On the **Data Upload** page, pick any binary column as your prediction target.  
+`isFraud` is pre-selected if present; otherwise the app suggests binary numeric columns.
+
+### Feature Selection Mode
+
+| Mode | How it works |
+|------|-------------|
+| **Automatic** (default) | Runs `engineer_features()` — 15+ domain-specific features for PaySim-schema data. Recommended for the included dataset. |
+| **Manual** | You pick which raw columns to use. Categoricals are one-hot encoded automatically. Scaling and SMOTE still apply. |
+
+Both modes support optional correlation removal and SMOTE balancing.
+
+---
+
+## 📦 Expected CSV Columns
+
+### Automatic Mode (PaySim schema)
 ```
 step, type, amount, nameOrig, oldbalanceOrg, newbalanceOrig,
-nameDest, oldbalanceDest, newbalanceDest, isFraud
+nameDest, oldbalanceDest, newbalanceDest, <target_col>
 ```
 
-> Compatible with the **PaySim** synthetic financial fraud dataset available on Kaggle.
+### Manual Mode
+Any CSV with your chosen feature columns + target column.
 
-### For Batch Prediction CSV
-Same columns **except** `isFraud` is optional. If included, the app will compute live performance metrics.
-
----
-
-## ⚙️ Engineered Features
-
-| Feature | Description |
-|---------|-------------|
-| `error_balance_orig` | Balance error at origin account |
-| `error_balance_dest` | Balance error at destination account |
-| `is_origin_emptied` | 1 if origin account drained to zero |
-| `dest_initial_zero` | 1 if destination balance started at zero |
-| `amount_log` | Log-transformed transaction amount |
-| `orig_balance_change` | Net change in origin balance |
-| `dest_balance_change` | Net change in destination balance |
-| `orig_balance_ratio` | Ratio of new to old origin balance |
-| `dest_balance_ratio` | Ratio of new to old destination balance |
-| `amount_to_orig_ratio` | Amount relative to origin balance |
-| `is_merchant` | 1 if destination is a merchant (M…) |
-| `is_cash_out_transfer` | 1 if type is CASH_OUT or TRANSFER |
-| `type_*` | One-hot encoded transaction types |
+### Batch Prediction
+Same schema as training (target column optional — if present, live metrics are shown).
 
 ---
 
@@ -115,25 +106,32 @@ Same columns **except** `isFraud` is optional. If included, the app will compute
 
 ---
 
-## 💾 Saved Artefacts
+## 💾 Saved Artefacts (`models/`)
 
-After training, the following files are saved to `models/`:
+| File | Contents |
+|------|----------|
+| `<ModelName>.pkl` | Best trained model |
+| `scaler.pkl` | Fitted StandardScaler |
+| `feature_cols.pkl` | Final feature column list |
+| `best_model_name.pkl` | Name of the best model |
+| `config.pkl` | `target_col` and `feature_mode` used during training |
 
-- `<ModelName>.pkl` — The best trained model
-- `scaler.pkl` — Fitted StandardScaler
-- `feature_cols.pkl` — List of feature columns
-- `best_model_name.pkl` — Name of the best model
+Use **"Load Saved Model"** in the sidebar to restore them across sessions.
 
-Use the **"Load Saved Model"** button in the sidebar to restore them in future sessions.
+> ⚠️ **AutoML models (H2O / AutoGluon) are not saved to disk** — they are not
+> joblib-safe and live in their own runtime (JVM cluster / AutoGluon dir). If an
+> AutoML model wins, it is used for the current session only and the app shows a
+> warning. Pick a standard model if you need a persistable artefact.
 
 ---
 
 ## 🧠 Tips
 
 - **Start with Random Forest + XGBoost** for fast, strong baselines.
-- **SMOTE** is applied by default to handle class imbalance — toggle it off for large datasets to save memory.
-- **Optimal Threshold** is tuned by minimising misclassification cost (FN cost >> FP cost for fraud).
-- For large datasets (>1M rows), consider sampling before upload or using AutoGluon's time limit wisely.
+- **Automatic mode** is recommended for PaySim data — it captures balance-error and drain patterns that are strong fraud signals.
+- **Manual mode** is ideal when you have a custom dataset with pre-engineered features.
+- **SMOTE** handles class imbalance by default — disable it for very large datasets.
+- **Optimal Threshold** minimises FN-weighted misclassification cost (FN >> FP for fraud).
 
 ---
 
