@@ -1,5 +1,19 @@
 # Changelog — Sentinel
 
+## v3.5 — AutoML/SHAP availability fixes + TPOT support
+
+### Fixed / Added
+- **AutoML & SHAP showed as "skipped" even when installed** — the real cause is an
+  environment mismatch (the app must run in the Python where the optional libraries
+  live). No code bug, but two real improvements:
+  - AutoML failures now report the **actual reason** (not installed / needs Java /
+    error message) instead of a vague "unavailable or failed — skipped".
+  - Added **TPOT** as a first-class AutoML option (it was never wired in). The branch
+    is version-robust (classic `scoring`/`generations` *and* TPOT 1.x `scorers`) and
+    hands TPOT 1.x a **threaded dask client** so it runs on Windows (avoids the
+    "Nanny failed to start" / "No clients found" errors).
+- Note: `H2O AutoML` needs a Java runtime; TPOT 1.x needs `setuptools<81`.
+
 ## v3.4 — Premium UI refresh + clearer data profile
 
 ### Added / Changed

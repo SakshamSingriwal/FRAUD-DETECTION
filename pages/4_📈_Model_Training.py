@@ -127,10 +127,11 @@ if st.button("🚀 Train selected models"):
     for j, name in enumerate(automl_sel):
         status.text(f"⏳ Running {name} (≤{time_limit}s)…")
         r = train_automl(name, prep, time_limit)
-        if r:
+        if r and "error" not in r:
             results[name] = r
         else:
-            st.warning(f"{name} unavailable or failed — skipped.")
+            reason = r.get("error", "unknown reason") if r else "unknown reason"
+            st.warning(f"⚠️ **{name}** skipped — {reason}")
         prog.progress((len(classic_sel) + j + 1) / len(selected))
 
     prog.progress(1.0)

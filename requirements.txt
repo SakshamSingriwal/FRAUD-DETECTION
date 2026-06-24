@@ -33,7 +33,9 @@ xlsxwriter>=3.1.0
 # flaml>=2.2.0              # fast AutoML — lightest option, recommended first
 # h2o>=3.44.0               # enterprise AutoML (needs Java)
 # autogluon.tabular>=1.0.0  # state-of-the-art AutoML (large)
-# tpot>=0.12.0              # genetic-programming AutoML
+# tpot>=0.12.0              # genetic-programming AutoML (TPOT 1.x also supported;
+#                            needs setuptools<81 for pkg_resources; the app gives it
+#                            a threaded dask client so it can run on Windows)
 # tensorflow>=2.15.0        # enables the deep autoencoder detector
 # lime>=0.2.0               # alternative local explanations
 # matplotlib>=3.7.0         # only if you add SHAP's native plots
