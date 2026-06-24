@@ -1,119 +1,126 @@
-# Changelog
+# Changelog — Sentinel
 
-## v2.1 — Correctness & Production Hardening
+## v3.2 — Debug pass, simpler UX, and a full term glossary
 
-This release fixes the five silent-wrong-output bugs identified in code review,
-plus a set of related issues found during a full audit. No UI features were
-removed; the public function signatures that changed are listed under
-**Breaking changes** below.
+### Changed
+- **Removed the amount-column selector** (Data Upload) and all `amount_col`
+  plumbing in `app.py`, `config.py`, and `data_processor.py` — it drove only the
+  removed dollar/ROI feature and added noise for students.
+- **Migrated `use_container_width=True` → `width="stretch"`** across all pages and
+  the visualizer (Streamlit deprecated the old arg) — removes warnings, future-proof.
 
----
+### Added — education / explainability
+- **3-part metric glossary** (`METRIC_HELP`): every score now has *what it means*,
+  *why it matters*, and *what a good value looks like* — including ROC-AUC, PR-AUC,
+  Recall, Precision, F1, LogLoss, Train AUC, Fit, and Threshold.
+- **Inline "What does each metric mean?"** expander on the Model Training page, so the
+  definitions sit right next to the comparison table (TP/FP/FN/TN explained too).
+- Learning Center renders the full 3-part glossary.
 
-### 🐞 The 5 critical bugs (from review)
+### Verified — full debug pass (both datasets)
+Exercised against the real `Fraud_Analysis_Dataset.csv` (11,142 rows) **and** the
+synthetic generator, via a temporary `streamlit.testing` harness (removed before
+commit). **32/32 checks passed:**
+- detect → preprocess (automatic + manual) → train every classic model
+  (LR, DT, RF, XGBoost, LightGBM, Isolation Forest, Stacking, Voting) with no errors
+  and a fit verdict each;
+- detection summary, PSI drift (target excluded), single + batch prediction
+  (probabilities in [0,1]), global + local explainability, all four unsupervised
+  detectors, and every Plotly chart;
+- all 8 pages render with no exception;
+- interactive paths click-tested: preprocessing run, supervised training, unsupervised
+  detection, and single prediction.
 
-**Bug 1 — AutoML models predicted everything as "legit"**
-- *Cause:* `_get_proba()` returned all-zero probabilities for any model lacking
-  `predict_proba` (H2O leader, etc.), so every prediction showed 0% fraud with
-  no error.
-- *Fix:* Introduced a single `get_proba(model, X)` entry point that explicitly
-  handles **H2O** (`predict()` → `p1` column) and **AutoGluon**
-  (`predict_proba` DataFrame → positive column), falls through to standard
-  `predict_proba`, and **raises `ValueError`** if a model genuinely cannot
-  score — it never returns silent zeros again.
-- AutoML leaders are **not joblib-safe**, so `save_artefacts()` now raises
-  `ModelNotPersistableError` for them and the app keeps them for the current
-  session only (with a clear warning) instead of writing an unusable `.pkl`.
-- `_get_proba` is retained as an alias of `get_proba` for backward
-  compatibility.
+## v3.1 — Simpler, more rigorous training & honest monitoring
 
-**Bug 2 — Isolation Forest always returned 0 on a single prediction**
-- *Cause:* the anomaly score was min-max scaled *within the current batch*; for
-  one row `min == max`, so the score collapsed to 0 and fraud was never flagged.
-- *Fix:* Added `IsolationForestWrapper`, which stores the score `min`/`max` from
-  the **training set** at `fit()` time and reuses them for every later batch
-  (including single rows). It exposes a standard `predict_proba`, so it flows
-  through `get_proba` like any other model and pickles cleanly.
+Senior-data-scientist pass focused on correctness over features.
 
-**Bug 3 — Threshold was tuned and scored on the same test set (leakage)**
-- *Cause:* `evaluate_model()` picked the optimal threshold on the test set and
-  then reported Precision/Recall/F1 on that same set → optimistic metrics.
-- *Fix:* `preprocess()` now produces a **train / validation / test** split.
-  `evaluate_model(model, X_val, y_val, X_test, y_test)` tunes the threshold on
-  the validation split and reports all metrics on the untouched test split. The
-  same discipline is applied to the AutoML wrappers.
+### Changed
+- **Removed the cost model.** Threshold tuning no longer needs FN/FP/review-cost
+  inputs. The decision threshold now **maximises F1 on the validation split**
+  (`best_threshold`), reported on the untouched test split — fewer assumptions,
+  always well-defined.
+- **Replaced dollar "business impact" / ROI** (which relied on a fabricated average
+  amount) with an honest **detection summary**: fraud caught/missed, detection rate
+  (recall), false-alarm rate, and precision — all directly observed on the test set.
 
-**Bug 4 — Class imbalance corrected twice (SMOTE + class weights)**
-- *Cause:* SMOTE balanced the data to ~50/50 *and* the models added
-  `class_weight="balanced"` / `scale_pos_weight=10`, over-predicting fraud.
-- *Fix:* `build_model_registry(use_class_weights=...)` makes weighting
-  configurable. The training flow sets `use_class_weights = not apply_smote`, so
-  imbalance is corrected **exactly once**: SMOTE *or* class weights, never both.
+### Fixed
+- **Data-drift snapshot was statistically invalid** and produced false alarms
+  (e.g. "drift in isFraud, step, amount"). Root causes: it included the **label**,
+  split by **arbitrary row order**, and used **mean-shift %** (undefined for
+  zero-heavy/count columns). Replaced with **PSI (Population Stability Index)** on
+  binned distributions, computed on **features only** (target + ID columns excluded),
+  **ordered by a time column** (`step`/datetime) when present, with standard
+  thresholds (<0.10 stable · 0.10–0.25 moderate · >0.25 significant).
 
-**Bug 5 — Results were not reproducible**
-- *Cause:* Random Forest, Gradient Boosting, XGBoost, LightGBM, CatBoost, and
-  the stacking sub-estimators had no seed.
-- *Fix:* A global `RANDOM_STATE = 42` is now applied to **every** stochastic
-  model (`random_state` / `random_seed`). Repeated runs give identical metrics
-  and the same "best model".
+### Added — under/over-fitting control
+- **Regularised model defaults** (shallow trees, leaf-size floors, row/column
+  subsampling, L2) to keep variance in check.
+- **Early stopping on the validation set** for XGBoost / LightGBM / CatBoost
+  (`_fit`), defensive across library versions.
+- **Fit diagnosis** per model (`_fit_diagnosis`): labels each model
+  **underfit / good / slight overfit / overfit** from the train→test ROC-AUC gap,
+  surfaced in the comparison table, per-model details, and dashboard scorecard.
+- Appropriate **loss/eval metrics** for imbalanced data (logloss/AUC, PR-AUC reported).
 
----
+### Improved
+- **Synthetic generator** now injects class overlap + label noise, so demo data is
+  realistic (AUC well below 1.0) and the fit/curve diagnostics are meaningful.
 
-### 🔍 Additional audit fixes
+## v3.0 — New multi-page platform
 
-- **Correlation-removal leakage:** correlated features are now identified on the
-  **training split only** (`find_correlated_features`) and the same columns are
-  dropped from validation/test — previously the decision used the whole dataset.
-- **Consistent missing-value handling:** `engineer_features()` and
-  `prepare_input_for_prediction()` now coerce inputs to numeric and fill NaNs,
-  so training and prediction handle messy/absent columns identically instead of
-  crashing or silently skewing the scaler.
-- **Robust AUC:** `roc_auc_score` is wrapped so a single-class slice yields
-  `NaN` rather than raising mid-training.
-- **Edge case — single-class target:** `preprocess()` raises a clear error when
-  the target has only one class, instead of failing deep inside SMOTE/metrics.
-- **Stacking / IsolationForest** now seeded and (for IsolationForest) wrapped so
-  they persist and score correctly.
+First release of **Sentinel**, a ground-up rebuild of the original single-file
+fraud app into a modular, multi-page Streamlit platform.
 
----
+### Added
+- **Multi-page app** (`app.py` + 7 pages) with a premium glass-morphism theme
+  (deep navy + gold), pipeline progress indicator, and reusable UI atoms.
+- **Auto-detection** of target column, amount column, feature types, fraud rate,
+  and PaySim schema (`data_processor.detect_metadata`).
+- **Unsupervised mode** — when no label is detected, anomaly detection with
+  Isolation Forest, LOF, One-Class SVM, Elliptic Envelope, and an optional
+  TensorFlow autoencoder; 0–100 risk scoring, smart auto-thresholding, and
+  per-row plain-English "why it's unusual" explanations.
+- **Explainability** — SHAP (with graceful fallback to native / permutation
+  importance), per-prediction top risk factors, live **what-if** sliders, and a
+  plain-English metric glossary + learning center.
+- **Business impact** — fraud caught / missed, false-alarm cost, net savings, ROI.
+- **Synthetic data generator** so the app is usable with zero setup.
+- **Interactive Plotly** charts throughout (ROC, PR, radar, gauges, confusion,
+  anomaly PCA scatter, SHAP summary, what-if waterfall).
+- **AutoML** wrappers for FLAML / H2O / AutoGluon — lazy-loaded, optional.
+- **Model persistence** with an explicit guard: AutoML leaders are not pickled
+  (`ModelNotPersistableError`) and kept session-only.
+- **Data-drift snapshot** and a **fraud-pattern library** on the dashboard.
 
-### ⚠️ Breaking changes (internal API only — no UI change)
+### Correctness (carried over from the v2.1 production hardening)
+- Single `get_proba()` that **raises** instead of returning silent zeros.
+- Isolation Forest wrapped with **train-time** score scaling (single-row works).
+- Threshold tuned on a **validation** split, metrics reported on the **test** split.
+- Imbalance corrected **once** — SMOTE *or* class weights, never both.
+- Correlation removal, scaling, and SMOTE all learn from the **train split only**.
+- Every stochastic model seeded with `RANDOM_STATE=42`.
+- Defensive NaN/column handling so prediction never crashes on messy input.
 
-- `preprocess()` returns extra keys: `X_val`, `y_val`, and `apply_smote`.
-- `evaluate_model(model, X_val, y_val, X_test, y_test)` — now takes a validation
-  set.
-- `train_models(selected, X_train, y_train, X_val, y_val, X_test, y_test, use_class_weights=..., ...)`.
-- `train_h2o_automl` / `train_autogluon` now take validation args.
-- `build_model_registry(use_class_weights=False, ...)`.
-- `remove_correlated_features()` replaced by `find_correlated_features()` (returns
-  the drop list; the split-aware caller does the dropping).
-- `get_proba()` is the new public name; `_get_proba` remains as an alias.
+### Notes / non-goals
+- The original root-level `app.py` / `utils.py` are **untouched** and still work.
+- Email/Slack alerting and PDF/PPTX export are scaffolded (`.env.example`,
+  CSV/Excel download) but not fully wired — they need deployment-specific creds.
+- The full optional dependency set (TensorFlow + Torch + DGL + H2O + AutoGluon +
+  TPOT + PyCaret) cannot coexist in one environment; extras are documented and
+  lazy-loaded individually.
 
-`app.py` was updated to use all of the above. Saved-model load
-(`load_artefacts`) and the on-disk artefact format are **unchanged**, so
-previously saved non-AutoML models still load.
-
----
-
-### 🧪 Testing plan (manual)
-
-Run `streamlit run app.py` and:
-
-1. **Reproducibility (Bug 5):** Train the same model set twice (e.g. Random
-   Forest + Logistic Regression). The ROC-AUC, threshold, and "best model" must
-   be **identical** across runs.
-2. **No double correction (Bug 4):** With SMOTE **on**, train Random Forest —
-   precision should be healthy (not collapsed). Confirm via the comparison table
-   that recall isn't ~1.0 with very low precision.
-3. **Validation split (Bug 3):** On the Feature Engineering page, confirm the
-   results show separate **Train / Validation / Test** sample counts and the
-   caption "Threshold is tuned on the validation split…".
-4. **Isolation Forest single prediction (Bug 2):** Train Isolation Forest, go to
-   Single Prediction, and predict one row — the fraud probability must be a
-   **non-zero, varying** value (not a flat 0.0000).
-5. **AutoML scoring (Bug 1):** If H2O/AutoGluon is installed and wins, Single &
-   Batch Prediction must show **non-zero** probabilities. Confirm a warning that
-   the AutoML model is session-only (not saved to `models/`).
-6. **No silent zeros (Bug 1):** Any model that cannot score raises a visible
-   error in the per-model results instead of reporting 0% fraud.
-7. **Batch with messy CSV:** Upload a batch CSV with a missing optional column /
-   some blank cells — predictions still run (NaNs filled, columns aligned).
+### Testing plan (manual)
+Run `streamlit run app.py`, then verify:
+1. **Synthetic data** — Home → generate sample → loads and detects supervised mode.
+2. **Supervised** — upload labeled CSV → Preprocessing → train RF + LR → comparison
+   table, ROC/PR/radar, and business-impact scorecard render; best model saved.
+3. **Unsupervised** — set target to “(none)” → Preprocessing → run Isolation Forest
+   → anomaly scatter + risk distribution; single prediction returns a **non-zero,
+   varying** risk.
+4. **Reproducibility** — train the same models twice → identical metrics & best model.
+5. **Single & batch prediction** — both modes return scores; batch CSV downloads.
+6. **Explainability** — global importance renders; what-if sliders move the gauge.
+7. **AutoML** (if installed) — scores non-zero; warns that it isn't saved to disk.
+8. **Edge cases** — single-class target raises a clear message; messy CSV (missing
+   columns / blanks) still scores.

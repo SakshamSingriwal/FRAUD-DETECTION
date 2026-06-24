@@ -1,32 +1,67 @@
-# 🛡️ Fraud Detection Studio v2.1
+# 🛡️ Sentinel — AI Fraud Detection Studio
 
-A production-ready, end-to-end fraud detection pipeline wrapped in a clean dark Streamlit UI.  
-Covers **EDA → target selection → feature engineering (auto or manual) → model training → threshold tuning → single/batch prediction**.
+A premium, multi-page Streamlit application for fraud detection that works **with
+or without labels**, **explains every decision** in plain English, and shows
+**business impact in dollars** — wrapped in a deep-navy + gold glass-morphism UI.
 
-> **v2.1** fixes five correctness bugs that silently produced wrong results
-> (see [`CHANGELOG.md`](CHANGELOG.md)). Notably: the decision threshold is now
-> tuned on a dedicated **validation split** and reported on an untouched **test
-> split**; class imbalance is corrected **once** (SMOTE *or* class weights);
-> Isolation Forest single-row scoring works; AutoML models score correctly; and
-> every model is seeded for reproducibility.
+> Sentinel is the production app for this repository and lives at the repo root —
+> run it directly with `streamlit run app.py`.
 
 ---
 
-## 📁 Folder Structure
+## ✨ Highlights
+
+- **Supervised _and_ unsupervised** — auto-detects whether your data has a label
+  column. No labels? It switches to anomaly detection (Isolation Forest, LOF,
+  One-Class SVM, Elliptic Envelope, optional Autoencoder) and gives every row a
+  0–100 risk score with reasons.
+- **Explainability first** — SHAP (with graceful fallback to native/permutation
+  importance), per-prediction risk factors, a live **what-if** slider panel, and
+  plain-English summaries of every prediction and metric.
+- **Business impact** — translates the confusion matrix into fraud caught,
+  fraud missed, false-alarm cost, net savings, and ROI.
+- **Leakage-free & reproducible ML** — train/validation/test splits, threshold
+  tuned on validation and scored on test, imbalance corrected exactly once
+  (SMOTE *or* class weights), every model seeded.
+- **Premium UI** — glass cards, gold accents, interactive Plotly charts, pipeline
+  progress indicator.
+- **Graceful degradation** — heavy AutoML/DL libraries are all optional and
+  lazy-loaded; the app runs fully on the small core stack.
+
+---
+
+## 📁 Structure
 
 ```
-fraud_detection_app/
-├── app.py              # Main Streamlit application
-├── utils.py            # Helper functions (feature engineering, training, prediction)
-├── requirements.txt    # Python dependencies
-├── CHANGELOG.md        # What changed in v2.0
-├── README.md           # This file
-└── models/             # Auto-created; stores trained model, scaler, feature columns, config
+FRAUD-DETECTION/                 # repo root
+├── app.py                       # Home / dashboard (Streamlit entry point)
+├── pages/
+│   ├── 1_📊_Data_Upload.py
+│   ├── 2_🔍_EDA.py
+│   ├── 3_⚙️_Preprocessing.py
+│   ├── 4_📈_Model_Training.py   # supervised compare + unsupervised anomaly
+│   ├── 5_🎯_Prediction.py       # single + batch, supervised + unsupervised
+│   ├── 6_📚_Model_Explainability.py
+│   └── 7_📊_Dashboard.py        # summary + fraud-pattern library + learning center
+├── utils/
+│   ├── __init__.py
+│   ├── config.py                # theme, CSS, session state, UI atoms
+│   ├── data_processor.py        # auto-detect, feature engineering, preprocessing
+│   ├── model_trainer.py         # registry, get_proba, evaluation, AutoML, $ impact
+│   ├── unsupervised.py          # anomaly detectors, risk scoring, explanations
+│   ├── model_explainer.py       # SHAP / importance / risk factors / glossary
+│   └── visualizer.py            # Plotly charts
+├── assets/style.css             # glass-morphism theme
+├── models/                      # saved model + scaler + features (auto-created)
+├── requirements.txt
+├── .env.example
+├── README.md
+└── CHANGELOG.md
 ```
 
 ---
 
-## 🚀 Quick Start
+## 🚀 Quick start
 
 ```bash
 python -m venv venv
@@ -39,102 +74,64 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
-Opens at `http://localhost:8501`.
+Opens at `http://localhost:8501`. No data? Click **“Generate synthetic PaySim
+sample”** on the Home page to explore everything instantly.
 
 ---
 
-## 🗺️ App Pages
+## 🗺️ Workflow
 
-| Page | What it does |
-|------|-------------|
-| **📊 Data Upload & EDA** | Upload CSV. **Select target column.** Choose Automatic or Manual feature mode. Explore class distribution, correlation heatmap, transaction types. |
-| **🔧 Feature Engineering** | Configure test size, SMOTE, correlation threshold and run the preprocessing pipeline. |
-| **🤖 Model Training** | Select and train up to 11 models. Compare by ROC-AUC, F1, and cost. Download the best model. |
-| **🎯 Single Prediction** | Dynamic form matching your feature mode. Animated FRAUD / LEGIT result card. |
-| **📁 Batch Prediction** | Upload a CSV. Get fraud scores, top 10 suspicious rows, probability histogram, download results. |
-
----
-
-## ⚙️ New in v2.0: User-Selectable Target & Feature Mode
-
-### Target Column Selection
-On the **Data Upload** page, pick any binary column as your prediction target.  
-`isFraud` is pre-selected if present; otherwise the app suggests binary numeric columns.
-
-### Feature Selection Mode
-
-| Mode | How it works |
-|------|-------------|
-| **Automatic** (default) | Runs `engineer_features()` — 15+ domain-specific features for PaySim-schema data. Recommended for the included dataset. |
-| **Manual** | You pick which raw columns to use. Categoricals are one-hot encoded automatically. Scaling and SMOTE still apply. |
-
-Both modes support optional correlation removal and SMOTE balancing.
+1. **Data Upload** — drop a CSV (or generate a sample). Sentinel detects the
+   target column, types, and fraud rate, and shows a data-quality report.
+   Confirm/override the target; choosing “(none)” enables unsupervised mode.
+2. **EDA** — auto-generated insights, interactive distributions, correlation,
+   fraud-by-category, and time trends.
+3. **Preprocessing** — automatic / manual / hybrid feature modes, scaler choice,
+   correlation removal, SMOTE. Produces leakage-free train/val/test splits.
+4. **Model Training** — pick classic models + ensembles (+ optional AutoML), train,
+   and compare via table, ROC/PR curves, radar, and confusion matrices. The decision
+   threshold is chosen by **maximising F1 on validation** (no cost model needed), and
+   each model is labelled **underfit / good / overfit** from its train→test AUC gap.
+   A plain **detection summary** (caught / missed / detection rate / false-alarm rate)
+   replaces fabricated dollar figures. Best model is saved automatically.
+5. **Prediction** — single transaction form or batch CSV; supervised or
+   unsupervised; each result comes with a risk gauge and the top contributing factors.
+6. **Explainability** — global SHAP/importance, what-if sliders, plain-English
+   reasons.
+7. **Dashboard** — executive summary, drift snapshot, fraud-pattern library, and a
+   plain-English learning center / glossary.
 
 ---
 
-## 📦 Expected CSV Columns
+## 🔌 Optional integrations
 
-### Automatic Mode (PaySim schema)
-```
-step, type, amount, nameOrig, oldbalanceOrg, newbalanceOrig,
-nameDest, oldbalanceDest, newbalanceDest, <target_col>
-```
+The app runs on the core stack. To enable extras, install them (ideally in an
+isolated env to avoid version conflicts):
 
-### Manual Mode
-Any CSV with your chosen feature columns + target column.
+| Feature | Install | Notes |
+|---|---|---|
+| Fast AutoML | `pip install flaml` | Lightest; recommended first AutoML option |
+| Enterprise AutoML | `pip install h2o` | Requires Java |
+| SOTA AutoML | `pip install autogluon.tabular` | Large download |
+| Genetic AutoML | `pip install tpot` | Slow; pins older sklearn |
+| Deep autoencoder | `pip install tensorflow` | Adds the Autoencoder detector |
+| Richer explanations | `pip install shap` | Already in core; enables SHAP plots |
 
-### Batch Prediction
-Same schema as training (target column optional — if present, live metrics are shown).
-
----
-
-## 🤖 Supported Models
-
-| Model | Library |
-|-------|---------|
-| Logistic Regression | scikit-learn |
-| Decision Tree | scikit-learn |
-| Random Forest | scikit-learn |
-| Gradient Boosting | scikit-learn |
-| XGBoost | xgboost |
-| LightGBM | lightgbm |
-| CatBoost | catboost |
-| Isolation Forest | scikit-learn |
-| Stacking Ensemble | scikit-learn |
-| H2O AutoML | h2o *(optional)* |
-| AutoGluon | autogluon *(optional)* |
+> ⚠️ **AutoML models are not saved to disk** (H2O/AutoGluon/FLAML aren't
+> joblib-safe). If an AutoML model wins, it's used for the current session and a
+> warning is shown.
 
 ---
 
-## 💾 Saved Artefacts (`models/`)
+## 🚢 Deployment
 
-| File | Contents |
-|------|----------|
-| `<ModelName>.pkl` | Best trained model |
-| `scaler.pkl` | Fitted StandardScaler |
-| `feature_cols.pkl` | Final feature column list |
-| `best_model_name.pkl` | Name of the best model |
-| `config.pkl` | `target_col` and `feature_mode` used during training |
-
-Use **"Load Saved Model"** in the sidebar to restore them across sessions.
-
-> ⚠️ **AutoML models (H2O / AutoGluon) are not saved to disk** — they are not
-> joblib-safe and live in their own runtime (JVM cluster / AutoGluon dir). If an
-> AutoML model wins, it is used for the current session only and the app shows a
-> warning. Pick a standard model if you need a persistable artefact.
-
----
-
-## 🧠 Tips
-
-- **Start with Random Forest + XGBoost** for fast, strong baselines.
-- **Automatic mode** is recommended for PaySim data — it captures balance-error and drain patterns that are strong fraud signals.
-- **Manual mode** is ideal when you have a custom dataset with pre-engineered features.
-- **SMOTE** handles class imbalance by default — disable it for very large datasets.
-- **Optimal Threshold** minimises FN-weighted misclassification cost (FN >> FP for fraud).
+- **Streamlit Cloud** — point it at `app.py`.
+- **Docker** — `streamlit run app.py --server.port $PORT --server.address 0.0.0.0`.
+- **.env** — copy `.env.example` → `.env` for AutoML budgets and (placeholder)
+  alert webhooks.
 
 ---
 
 ## 📄 License
 
-MIT — free to use, modify, and deploy.
+MIT.

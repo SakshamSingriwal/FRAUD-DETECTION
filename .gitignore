@@ -1,11 +1,10 @@
 __pycache__/
-catboost_info/
 *.pyc
 
-# Sentinel (fraud_detection_app) generated artifacts
-fraud_detection_app/models/*.pkl
-fraud_detection_app/catboost_info/
-fraud_detection_app/AutogluonModels/
-fraud_detection_app/.env
-.env
+# Generated ML artifacts
+models/*.pkl
+catboost_info/
+AutogluonModels/
 
+# Local env
+.env
