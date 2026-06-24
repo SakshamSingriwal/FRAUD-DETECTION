@@ -77,13 +77,20 @@ st.markdown("### 🤖 Select models")
 classic = list_supervised_models()
 all_models = classic + list(AUTOML_NAMES)
 
-select_all = st.checkbox("Select all classic models")
+# "Select all" toggles each classic model via a callback. (We must write the
+# individual checkboxes' session_state here — a keyed checkbox ignores `value=`
+# on reruns, so simply recomputing a default would not update them.)
+def _toggle_all_classic():
+    for nm in classic:
+        st.session_state[f"m_{nm}"] = st.session_state["select_all_classic"]
+
+st.checkbox("Select all classic models", key="select_all_classic",
+            on_change=_toggle_all_classic)
 cols = st.columns(3)
 selected = []
 for i, name in enumerate(all_models):
     is_automl = name in AUTOML_NAMES
-    default = select_all and not is_automl
-    if cols[i % 3].checkbox(name + (" ⚡" if is_automl else ""), value=default, key=f"m_{name}"):
+    if cols[i % 3].checkbox(name + (" ⚡" if is_automl else ""), key=f"m_{name}"):
         selected.append(name)
 
 c1, c2 = st.columns([1, 2])

@@ -8,3 +8,6 @@ AutogluonModels/
 
 # Local env
 .env
+
+# Claude Code local settings (never commit)
+.claude/
