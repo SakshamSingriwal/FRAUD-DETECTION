@@ -1,5 +1,21 @@
 # Changelog — Sentinel
 
+## v3.3 — Auto-selected scaler + Select-all fix
+
+### Added
+- **Automatic scaler selection** (`recommend_scaler`): the Preprocessing page now
+  defaults to **Auto**, profiling the engineered features and choosing
+  **RobustScaler** when data is heavily skewed / outlier-heavy (money amounts,
+  balances) and **StandardScaler** otherwise. The chosen scaler and the reason are
+  shown; standard / robust / minmax remain available as manual overrides.
+  (Verified: real & synthetic PaySim → robust; Gaussian data → standard.)
+
+### Fixed
+- **"Select all classic models"** on the Model Training page did nothing — keyed
+  checkboxes ignore their `value=` arg on rerun. Now uses an `on_change` callback
+  that sets each model checkbox's state (verified: selects all 10 and trains them).
+- Added `.claude/` (Claude Code local settings) to `.gitignore`.
+
 ## v3.2 — Debug pass, simpler UX, and a full term glossary
 
 ### Changed

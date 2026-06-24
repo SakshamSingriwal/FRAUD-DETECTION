@@ -4,7 +4,8 @@ import pandas as pd
 import streamlit as st
 
 from utils.config import setup_page, stat_card, explain
-from utils.data_processor import preprocess, prepare_unsupervised, build_feature_frame
+from utils.data_processor import (preprocess, prepare_unsupervised, build_feature_frame,
+                                  recommend_scaler)
 from utils import visualizer as viz
 
 setup_page("Preprocessing & Feature Engineering", "⚙️",
@@ -46,7 +47,11 @@ explain(
 st.markdown("### ⚙️ Pipeline configuration")
 c1, c2, c3 = st.columns(3)
 with c1:
-    scaler_kind = st.selectbox("Scaler", ["standard", "robust", "minmax"])
+    scaler_choice = st.selectbox(
+        "Scaler", ["Auto (recommended)", "standard", "robust", "minmax"],
+        help="Auto profiles your data and picks the best scaler. Tree models (RF, "
+             "XGBoost, CatBoost) are scale-invariant; scaling mainly helps Logistic "
+             "Regression.")
     corr_thr = st.slider("Correlation removal threshold", 0.80, 1.0, 0.95, 0.01)
 with c2:
     test_size = st.slider("Test size", 0.1, 0.4, 0.2, 0.05)
@@ -54,6 +59,14 @@ with c2:
 with c3:
     apply_corr = st.checkbox("Remove correlated features", value=True)
     apply_smote = st.checkbox("Balance with SMOTE", value=True, disabled=not supervised)
+
+# Resolve the scaler: Auto = data-driven recommendation, else the manual pick.
+if scaler_choice.startswith("Auto"):
+    scaler_kind, scaler_reason = recommend_scaler(
+        df, s.get("target_col"), feature_mode, manual_cols)
+    st.caption(f"🤖 **Auto-selected scaler: `{scaler_kind}`** — {scaler_reason}")
+else:
+    scaler_kind = scaler_choice
 
 if supervised:
     st.caption("ℹ️ When SMOTE is ON, models use **no** class weights (imbalance is "

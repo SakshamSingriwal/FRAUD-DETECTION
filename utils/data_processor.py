@@ -298,6 +298,48 @@ def _encode_generic(df: pd.DataFrame, max_card: int = 20) -> pd.DataFrame:
 _SCALERS = {"standard": StandardScaler, "robust": RobustScaler, "minmax": MinMaxScaler}
 
 
+def recommend_scaler(df: pd.DataFrame, target_col: str | None = None,
+                     feature_mode: str = "automatic",
+                     manual_cols: list[str] | None = None) -> tuple[str, str]:
+    """Pick the scaler that best fits the data's distribution shape.
+
+    Logic (profiled on the engineered feature frame — i.e. exactly what gets
+    scaled):
+      * Heavy right-skew and/or many extreme outliers — typical of money amounts
+        and account balances — break StandardScaler (its mean/std get dragged by
+        the tail), so we choose **RobustScaler** (median / IQR).
+      * Otherwise, roughly well-behaved features → **StandardScaler**.
+    Binary / one-hot flag columns are ignored (scaling them is meaningless).
+
+    Returns (scaler_kind, human-readable reason).
+    """
+    try:
+        X = build_feature_frame(df, target_col, feature_mode, manual_cols)
+    except Exception:
+        return "standard", "could not profile features — using StandardScaler"
+
+    cols = [c for c in X.columns if X[c].nunique(dropna=True) > 2]   # skip flags
+    if not cols:
+        return "standard", "features are mostly binary flags — scaling has little effect"
+
+    skews, out_fracs = [], []
+    for c in cols:
+        s = X[c].astype(float)
+        sk = s.skew()
+        skews.append(0.0 if pd.isna(sk) else abs(float(sk)))
+        q1, q3 = s.quantile(0.25), s.quantile(0.75)
+        iqr = q3 - q1
+        out_fracs.append(float(((s < q1 - 3 * iqr) | (s > q3 + 3 * iqr)).mean()) if iqr > 0 else 0.0)
+
+    med_skew = float(np.median(skews))
+    mean_out = float(np.mean(out_fracs))
+    if med_skew > 2.0 or mean_out > 0.02:
+        return "robust", (f"heavy skew / outliers (median |skew| = {med_skew:.1f}, "
+                          f"~{mean_out:.1%} extreme values) → RobustScaler")
+    return "standard", (f"well-behaved distributions (median |skew| = {med_skew:.1f}) "
+                        f"→ StandardScaler")
+
+
 def build_feature_frame(df: pd.DataFrame, target_col: str | None,
                         feature_mode: str = "automatic",
                         manual_cols: list[str] | None = None) -> pd.DataFrame:
