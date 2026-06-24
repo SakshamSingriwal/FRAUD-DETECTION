@@ -143,7 +143,8 @@ def population_stability_index(expected, actual, bins: int = 10) -> float:
 
 
 def drift_report(df: pd.DataFrame, target_col: str | None = None,
-                 time_col: str | None = None, min_rows: int = 50):
+                 time_col: str | None = None, min_rows: int = 50,
+                 legit_only: bool = True):
     """Compare an earlier vs later window of the data, per numeric FEATURE.
 
     Correctness choices (why the naive 'mean-shift %' check was wrong):
@@ -154,10 +155,24 @@ def drift_report(df: pd.DataFrame, target_col: str | None = None,
         halves of the current order and clearly say drift can't be time-anchored.
       * PSI (binned) is used instead of mean-shift %, which is undefined/unstable
         for zero-heavy or near-zero-mean features.
+      * ``legit_only``: when labels exist, drift is measured on the **legitimate
+        (non-fraud) population**. Otherwise a temporal *clustering of fraud* (very
+        common in static datasets) shows up as feature drift even though normal
+        customer behaviour is unchanged — a false alarm. Measuring on the
+        non-fraud rows isolates genuine population drift.
 
     Returns (report_df, ordering_note).
     """
     work = df.copy()
+
+    # Measure on legitimate transactions only (when a target is available).
+    measured_on = "all transactions"
+    if legit_only and target_col and target_col in work.columns:
+        legit_mask = ~_positive_mask(work[target_col])
+        if legit_mask.sum() >= 2 * min_rows:
+            work = work[legit_mask]
+            measured_on = "legitimate (non-fraud) transactions"
+
     order_col = None
     if time_col and time_col in work.columns:
         order_col = time_col
@@ -188,9 +203,10 @@ def drift_report(df: pd.DataFrame, target_col: str | None = None,
 
     report = pd.DataFrame(rows).sort_values("PSI", ascending=False).reset_index(drop=True) \
         if rows else pd.DataFrame(columns=["feature", "PSI", "status"])
-    note = (f"ordered by `{order_col}`" if order_col
-            else "no time column found — comparing dataset halves in file order "
-                 "(not time-anchored)")
+    order_note = (f"ordered by `{order_col}`" if order_col
+                  else "no time column found — comparing dataset halves in file order "
+                       "(not time-anchored)")
+    note = f"on {measured_on}, {order_note}"
     return report, note
 
 

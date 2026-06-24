@@ -48,8 +48,10 @@ with tab_sum:
         st.markdown("#### 📉 Data drift (Population Stability Index)")
         report, note = drift_report(df, target_col=s.get("target_col"))
         st.caption(f"PSI compares the binned distribution of each **feature** in an earlier "
-                   f"vs later window ({note}). Target and ID columns are excluded. "
-                   f"Rule of thumb: <0.10 stable · 0.10–0.25 moderate · >0.25 significant.")
+                   f"vs later window ({note}). Target and ID columns are excluded, and drift "
+                   f"is measured on non-fraud rows so a *time-clustering of fraud* isn't "
+                   f"mistaken for real drift. Rule of thumb: <0.10 stable · 0.10–0.25 "
+                   f"moderate · >0.25 significant.")
         if report.empty:
             st.info("Not enough numeric features / rows to assess drift.")
         else:
