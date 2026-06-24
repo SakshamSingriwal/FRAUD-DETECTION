@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import streamlit as st
+import streamlit.components.v1 as components
 
 # Re-export the Streamlit-free constants so existing `from .config import GOLD`
 # style imports keep working.
@@ -127,3 +128,37 @@ def explain(text: str, label: str = "💡 Explain") -> None:
     """Collapsible plain-English explainer used throughout the app."""
     with st.expander(label):
         st.markdown(text)
+
+
+# ── Auto-scroll to results after a button action ────────────────────────────────
+# Streamlit appends new output below the fold, so after clicking a button the
+# results can land off-screen. `anchor()` drops an invisible target near the
+# results; a button handler calls `request_scroll(name)`; `apply_scroll()` (called
+# once at the end of the page) smooth-scrolls the parent page to that target.
+def anchor(name: str) -> None:
+    st.markdown(f'<div id="{name}" style="scroll-margin-top:70px"></div>',
+                unsafe_allow_html=True)
+
+
+def request_scroll(name: str) -> None:
+    st.session_state["_scroll_target"] = name
+
+
+def apply_scroll(name: str | None = None) -> None:
+    """Scroll to ``name`` if given (inline use), else to a pending request_scroll
+    target (consumed once). Call once near the end of a page, or inline right after
+    rendering results."""
+    name = name or st.session_state.pop("_scroll_target", None)
+    if not name:
+        return
+    components.html(
+        f"""
+        <script>
+          let tries = 0;
+          const timer = setInterval(function() {{
+            const el = window.parent.document.getElementById('{name}');
+            if (el) {{ el.scrollIntoView({{behavior: 'smooth', block: 'start'}}); clearInterval(timer); }}
+            if (++tries > 25) clearInterval(timer);
+          }}, 100);
+        </script>
+        """, height=0)

@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-from utils.config import setup_page, explain
+from utils.config import setup_page, explain, anchor, apply_scroll
 from utils.data_processor import (prepare_input_for_prediction, PAYSIM_COLS,
                                   TRANSACTION_TYPES)
 from utils.model_trainer import get_proba, load_artifacts
@@ -102,6 +102,7 @@ with tabs[0]:
             is_fraud = proba >= threshold
             factors = top_risk_factors(model, X[0], feature_cols)
 
+        anchor("predict-result")
         cls = "verdict-fraud" if is_fraud else "verdict-legit"
         label = "🚨 FRAUD / ANOMALY" if is_fraud else "✅ LEGITIMATE"
         st.markdown(f"""<div class="verdict {cls}">
@@ -122,6 +123,7 @@ with tabs[0]:
             else:
                 st.markdown(plain_english_prediction(proba, threshold, factors))
                 st.plotly_chart(viz.waterfall_factors(factors), width="stretch")
+        apply_scroll("predict-result")
 
 # ════════════════════════════════════════════════════════════════════════════════
 # BATCH PREDICTION

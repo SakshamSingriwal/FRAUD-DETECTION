@@ -1,5 +1,16 @@
 # Changelog — Sentinel
 
+## v3.6 — Reliable AutoML set + auto-scroll to results
+
+### Changed
+- **Trimmed AutoML to what reliably works:** kept **FLAML + AutoGluon**, removed
+  **TPOT** (flaky on Windows via its dask backend) and **H2O AutoML** (needs a Java
+  runtime). Classic ML, ensembles, and unsupervised detectors are unchanged.
+- **Auto-scroll to results:** after clicking **Run preprocessing**, **Train**, or
+  **Predict**, the page now smooth-scrolls to the freshly rendered results so the
+  output is never left off-screen. Implemented with a small `anchor()` /
+  `request_scroll()` / `apply_scroll()` helper in `config.py`.
+
 ## v3.5 — AutoML/SHAP availability fixes + TPOT support
 
 ### Fixed / Added

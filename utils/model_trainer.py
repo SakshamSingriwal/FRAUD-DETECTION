@@ -28,7 +28,7 @@ from sklearn.metrics import (accuracy_score, precision_score, recall_score, f1_s
 
 from .constants import RANDOM_STATE
 
-AUTOML_NAMES = ("FLAML", "TPOT", "H2O AutoML", "AutoGluon")
+AUTOML_NAMES = ("FLAML", "AutoGluon")
 
 
 # ── Unified probability access ──────────────────────────────────────────────────
@@ -303,10 +303,10 @@ def train_models(selected, prep, beta: float = 1.0, progress_cb=None) -> dict:
 
 
 def train_automl(name, prep, time_limit=120, beta: float = 1.0):
-    """Best-effort AutoML. Returns a result dict on success, or ``{"error": msg}``
-    explaining exactly why it could not run (not installed, no Java, etc.) so the
-    UI can show the real reason instead of a vague 'skipped'. Scored with the same
-    val/test discipline as every other model."""
+    """Best-effort AutoML (FLAML, AutoGluon). Returns a result dict on success, or
+    ``{"error": msg}`` explaining exactly why it could not run (e.g. not installed)
+    so the UI can show the real reason instead of a vague 'skipped'. Scored with the
+    same val/test discipline as every other model."""
     Xtr, ytr = prep["X_train"], prep["y_train"]
     Xvl, yvl = prep["X_val"], prep["y_val"]
     Xte, yte = prep["X_test"], prep["y_test"]
@@ -317,42 +317,6 @@ def train_automl(name, prep, time_limit=120, beta: float = 1.0):
             model = AutoML()
             model.fit(np.asarray(Xtr), np.asarray(ytr), task="classification",
                       time_budget=time_limit, metric="roc_auc", verbose=0, seed=RANDOM_STATE)
-        elif name == "TPOT":
-            import inspect
-            from tpot import TPOTClassifier
-            mins = max(1, round(time_limit / 60))
-            params = inspect.signature(TPOTClassifier.__init__).parameters
-            kw = dict(max_time_mins=mins, random_state=RANDOM_STATE, n_jobs=1)
-            _client = None
-            if "scorers" in params:        # TPOT >= 1.x (new, dask-based rewrite)
-                kw.update(scorers=["roc_auc"], scorers_weights=[1.0], verbose=0)
-                if "client" in params:
-                    # Threaded local client (default registered so TPOT's internal
-                    # get_client() finds it) → avoids both "Nanny failed to start"
-                    # and "No clients found" on Windows/Streamlit.
-                    from dask.distributed import Client
-                    _client = Client(processes=False)
-                    kw["client"] = _client
-            else:                          # classic TPOT 0.11.x
-                kw.update(scoring="roc_auc", generations=5, population_size=20, verbosity=0)
-            try:
-                model = TPOTClassifier(**kw)
-                model.fit(np.asarray(Xtr), np.asarray(ytr))
-            finally:
-                if _client is not None:
-                    try:
-                        _client.close()
-                    except Exception:
-                        pass
-        elif name == "H2O AutoML":
-            import h2o
-            from h2o.automl import H2OAutoML
-            h2o.init(verbose=False)
-            tdf = pd.DataFrame(Xtr); tdf["label"] = np.asarray(ytr)
-            hf = h2o.H2OFrame(tdf); hf["label"] = hf["label"].asfactor()
-            aml = H2OAutoML(max_runtime_secs=time_limit, seed=RANDOM_STATE, verbosity=None)
-            aml.train(y="label", training_frame=hf)
-            model = aml.leader
         elif name == "AutoGluon":
             from autogluon.tabular import TabularPredictor
             tdf = pd.DataFrame(Xtr); tdf["label"] = np.asarray(ytr)

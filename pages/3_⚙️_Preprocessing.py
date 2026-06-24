@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-from utils.config import setup_page, stat_card, explain
+from utils.config import setup_page, stat_card, explain, anchor, request_scroll, apply_scroll
 from utils.data_processor import (preprocess, prepare_unsupervised, build_feature_frame,
                                   recommend_scaler)
 from utils import visualizer as viz
@@ -93,6 +93,7 @@ if st.button("⚙️ Run preprocessing"):
             st.error(f"Preprocessing failed: {e}")
             st.stop()
     st.success("✅ Preprocessing complete.")
+    request_scroll("prep-results")
 
 prep = s.get("prep")
 if not prep:
@@ -100,6 +101,7 @@ if not prep:
     st.stop()
 
 # ── Results ──────────────────────────────────────────────────────────────────────
+anchor("prep-results")
 st.markdown("### 📊 Pipeline results")
 if prep.get("unsupervised"):
     a, b = st.columns(2)
@@ -127,3 +129,5 @@ else:
 
 with st.expander("📋 Final feature columns"):
     st.dataframe(pd.DataFrame({"Feature": prep["feature_cols"]}), width="stretch")
+
+apply_scroll()

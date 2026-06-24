@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-from utils.config import setup_page, stat_card, explain
+from utils.config import setup_page, stat_card, explain, anchor, request_scroll, apply_scroll
 from utils.model_trainer import (list_supervised_models, train_models, train_automl,
                                  AUTOML_NAMES, save_artifacts, ModelNotPersistableError,
                                  detection_summary, pick_best_model)
@@ -43,7 +43,9 @@ if prep.get("unsupervised"):
                 st.warning(f"{name} failed: {e}")
             prog.progress((i + 1) / len(dets))
         st.success("✅ Done.")
+        request_scroll("unsup-results")
 
+    anchor("unsup-results")
     if s.get("unsup_results"):
         names = list(s.unsup_results.keys())
         pick = st.selectbox("View detector", names)
@@ -68,6 +70,7 @@ if prep.get("unsupervised"):
                         f"**{roc_auc_score(y, r['scores']):.3f}**")
             except Exception:
                 pass
+    apply_scroll()
     st.stop()
 
 # ════════════════════════════════════════════════════════════════════════════════
@@ -137,6 +140,7 @@ if st.button("🚀 Train selected models"):
     prog.progress(1.0)
     status.text("✅ Training complete.")
     s.results = results
+    request_scroll("train-results")
 
     best = pick_best_model(results)   # consistent strength across metrics, not one
     if best:
@@ -161,6 +165,7 @@ best = s.get("best_model_name")
 yte = prep["y_test"]
 
 # ── Comparison table ─────────────────────────────────────────────────────────────
+anchor("train-results")
 st.markdown("### 🏁 Comparison")
 metric_cols = ["Train AUC", "ROC-AUC", "PR-AUC", "Precision", "Recall", "F1",
                "LogLoss", "Fit", "Threshold", "train_time"]
@@ -229,3 +234,5 @@ for name, r in results.items():
                     f"{r.get('ROC-AUC')} — _{r.get('Fit reason', '')}_")
         st.plotly_chart(viz.confusion(r["confusion_matrix"], f"{name} · confusion matrix"),
                         width="stretch")
+
+apply_scroll()
