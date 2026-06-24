@@ -1,5 +1,18 @@
 # Changelog — Sentinel
 
+## v3.7 — Fix empty "Why this prediction" bars
+
+### Fixed
+- The per-prediction **"Contribution to fraud score"** chart (Prediction &
+  Explainability pages) showed feature names but **no bars**. Root cause: for
+  CatBoost the SHAP path used `shap.Explainer(predict_proba, x)` with the single
+  instance as its own background, collapsing every contribution to 0.
+  - Now uses `shap.TreeExplainer` for tree models (CatBoost/LightGBM/XGBoost/RF/…),
+    which needs no background and returns real values.
+  - Linear models (Logistic Regression) use the exact `coef × value` contribution
+    instead of perturbing a saturated sigmoid (which also yielded ~0).
+  Verified: CatBoost top factor `orig_balance_change` (+1.97), etc. — bars render.
+
 ## v3.6 — Reliable AutoML set + auto-scroll to results
 
 ### Changed

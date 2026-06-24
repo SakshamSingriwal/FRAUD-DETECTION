@@ -98,20 +98,39 @@ def top_risk_factors(model, x_row_scaled, feature_cols, top_k=5) -> list[dict]:
     if shap_available():
         try:
             import shap
-            explainer = shap.TreeExplainer(model) if hasattr(model, "get_booster") \
-                else shap.Explainer(model.predict_proba, x)
-            vals = explainer(x)
-            arr = vals.values
-            if arr.ndim == 3:
-                arr = arr[0, :, -1]
-            else:
-                arr = arr[0]
-            order = np.argsort(-np.abs(arr))[:top_k]
-            return [{"feature": feature_cols[i], "impact": float(arr[i]),
-                     "direction": "↑ fraud" if arr[i] > 0 else "↓ fraud"} for i in order]
+            # TreeExplainer covers CatBoost / LightGBM / XGBoost / sklearn trees and
+            # ensembles, and needs no background data — so its values aren't all
+            # zero (the old model-agnostic path used the single instance as its own
+            # background, which collapses every contribution to 0).
+            arr = None
+            try:
+                vals = shap.TreeExplainer(model)(x)
+                a = np.asarray(vals.values)
+                a = a[0, :, -1] if a.ndim == 3 else a[0]
+                if np.abs(a).sum() > 1e-12:
+                    arr = a
+            except Exception:
+                arr = None
+            if arr is not None:
+                order = np.argsort(-np.abs(arr))[:top_k]
+                return [{"feature": feature_cols[i], "impact": float(arr[i]),
+                         "direction": "↑ fraud" if arr[i] > 0 else "↓ fraud"} for i in order]
         except Exception:
             pass
-    # Fallback: zero-out each feature and see how the probability moves.
+    # Linear models (e.g. Logistic Regression): the exact local contribution to the
+    # log-odds is coef × feature value — far better than perturbing a saturated
+    # sigmoid (which barely moves and yields ~0 everywhere).
+    if hasattr(model, "coef_"):
+        coef = np.asarray(model.coef_).ravel()
+        if coef.shape[0] == x.shape[1]:
+            contrib = coef * x[0]
+            if np.abs(contrib).sum() > 1e-12:
+                order = np.argsort(-np.abs(contrib))[:top_k]
+                return [{"feature": feature_cols[i], "impact": float(contrib[i]),
+                         "direction": "↑ fraud" if contrib[i] > 0 else "↓ fraud"} for i in order]
+
+    # Final fallback (other models): zero-out each feature and see how the
+    # probability moves.
     base = float(get_proba(model, x)[0])
     deltas = []
     for j in range(x.shape[1]):
