@@ -117,6 +117,43 @@ def _check(name, value, good_max, warn_max, detail):
     return {"check": name, "status": status, "detail": detail}
 
 
+def profile_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+    """A readable per-column data profile (replaces the raw ``describe`` dump).
+
+    Unlike ``df.describe()`` — whose ``count`` is just the non-null count and so
+    looks identical for every column when there are no missing values — this
+    shows the dtype, non-null count, **missing %**, unique count, and the key
+    numeric stats (or the most frequent value for text columns), all formatted
+    with thousands separators.
+    """
+    n = max(len(df), 1)
+
+    def fmt(x):
+        try:
+            return f"{x:,.2f}"
+        except (TypeError, ValueError):
+            return "—"
+
+    rows = []
+    for c in df.columns:
+        col = df[c]
+        non_null = int(col.notna().sum())
+        miss_pct = (n - non_null) / n * 100
+        rec = {"Column": c, "Type": str(col.dtype), "Non-null": f"{non_null:,}",
+               "Missing %": f"{miss_pct:.1f}%", "Unique": f"{col.nunique(dropna=True):,}"}
+        if pd.api.types.is_numeric_dtype(col):
+            rec.update({"Mean": fmt(col.mean()), "Median": fmt(col.median()),
+                        "Min": fmt(col.min()), "Max": fmt(col.max()),
+                        "Most common": "—"})
+        else:
+            mode = col.mode(dropna=True)
+            top = str(mode.iloc[0]) if not mode.empty else "—"
+            rec.update({"Mean": "—", "Median": "—", "Min": "—", "Max": "—",
+                        "Most common": top})
+        rows.append(rec)
+    return pd.DataFrame(rows)
+
+
 # ── Drift (Population Stability Index) ──────────────────────────────────────────
 def population_stability_index(expected, actual, bins: int = 10) -> float:
     """PSI between two samples of one feature.

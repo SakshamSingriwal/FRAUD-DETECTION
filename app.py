@@ -29,13 +29,13 @@ st.markdown(
     """, unsafe_allow_html=True)
 
 c1, c2, c3, c4 = st.columns(4)
-c1.markdown(stat_card("Transactions loaded", f"{n_txn:,}", "current dataset"), unsafe_allow_html=True)
+c1.markdown(stat_card("Transactions loaded", f"{n_txn:,}", "current dataset", icon="📊"), unsafe_allow_html=True)
 c2.markdown(stat_card("Known fraud cases", f"{n_fraud:,}",
                       f"{meta.get('fraud_rate', 0) or 0:.2f}% rate" if meta.get("fraud_rate") is not None else "no labels",
-                      tone="red"), unsafe_allow_html=True)
-c3.markdown(stat_card("Models trained", f"{n_models}", "this session", tone="green"), unsafe_allow_html=True)
+                      tone="red", icon="🚨"), unsafe_allow_html=True)
+c3.markdown(stat_card("Models trained", f"{n_models}", "this session", tone="green", icon="🤖"), unsafe_allow_html=True)
 c4.markdown(stat_card("Mode", (s.get("problem_type") or "—").capitalize(),
-                      "auto-detected"), unsafe_allow_html=True)
+                      "auto-detected", icon="⚙️"), unsafe_allow_html=True)
 
 st.markdown("")
 

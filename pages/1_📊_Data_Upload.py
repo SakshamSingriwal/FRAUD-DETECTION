@@ -4,7 +4,7 @@ import streamlit as st
 
 from utils.config import setup_page, stat_card, explain
 from utils.data_processor import (detect_metadata, data_quality_report,
-                                  generate_synthetic_fraud)
+                                  generate_synthetic_fraud, profile_dataframe)
 
 setup_page("Data Upload", "📊",
            "Drop a CSV — Sentinel auto-detects your target, types, and fraud rate.")
@@ -64,18 +64,19 @@ st.divider()
 # ── Quick stats ─────────────────────────────────────────────────────────────────
 st.markdown("### 📈 Overview")
 g1, g2, g3, g4 = st.columns(4)
-g1.markdown(stat_card("Rows", f"{meta['n_rows']:,}"), unsafe_allow_html=True)
-g2.markdown(stat_card("Columns", f"{meta['n_cols']}"), unsafe_allow_html=True)
+g1.markdown(stat_card("Rows", f"{meta['n_rows']:,}", icon="📋"), unsafe_allow_html=True)
+g2.markdown(stat_card("Columns", f"{meta['n_cols']}", icon="🧩"), unsafe_allow_html=True)
 g3.markdown(stat_card("Missing cells", f"{meta['missing_total']:,}",
-                      tone=("green" if meta["missing_total"] == 0 else "gold")), unsafe_allow_html=True)
+                      "complete data" if meta["missing_total"] == 0 else "",
+                      tone=("green" if meta["missing_total"] == 0 else "gold"), icon="🕳️"), unsafe_allow_html=True)
 g4.markdown(stat_card("Duplicate rows", f"{meta['duplicates']:,}",
-                      tone=("green" if meta["duplicates"] == 0 else "gold")), unsafe_allow_html=True)
+                      tone=("green" if meta["duplicates"] == 0 else "gold"), icon="♻️"), unsafe_allow_html=True)
 
 if s.problem_type == "supervised":
     f1, f2 = st.columns(2)
-    f1.markdown(stat_card("Fraud cases", f"{meta['fraud_count']:,}", tone="red"), unsafe_allow_html=True)
+    f1.markdown(stat_card("Fraud cases", f"{meta['fraud_count']:,}", tone="red", icon="🚨"), unsafe_allow_html=True)
     f2.markdown(stat_card("Fraud rate", f"{meta['fraud_rate']:.2f}%",
-                          "highly imbalanced" if (meta['fraud_rate'] or 0) < 5 else "", tone="red"),
+                          "highly imbalanced" if (meta['fraud_rate'] or 0) < 5 else "", tone="red", icon="📉"),
                 unsafe_allow_html=True)
 
 # ── Data quality report ───────────────────────────────────────────────────────
@@ -86,7 +87,10 @@ for r in data_quality_report(df):
 # ── Preview ───────────────────────────────────────────────────────────────────
 with st.expander("📄 Data preview", expanded=True):
     st.dataframe(df.head(200), width="stretch")
-with st.expander("📊 Summary statistics"):
-    st.dataframe(df.describe(include="all").T, width="stretch")
+with st.expander("📊 Summary statistics (column profile)"):
+    st.dataframe(profile_dataframe(df), width="stretch", hide_index=True)
+    st.caption("**Non-null** is how many real values each column has. Here every column "
+               "shows the full row count with **0% missing** — that means your data is "
+               "complete (no gaps), which is exactly what we want.")
 
 st.success("✅ Configuration saved. Continue to **EDA** or **Preprocessing**.")

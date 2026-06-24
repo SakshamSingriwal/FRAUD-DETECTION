@@ -112,9 +112,11 @@ def glass_card(html: str) -> None:
     st.markdown(f'<div class="glass">{html}</div>', unsafe_allow_html=True)
 
 
-def stat_card(label: str, value: str, sub: str = "", tone: str = "gold") -> str:
+def stat_card(label: str, value: str, sub: str = "", tone: str = "gold",
+              icon: str = "") -> str:
+    icon_html = f'<div class="stat-icon">{icon}</div>' if icon else ""
     return (
-        f'<div class="stat stat-{tone}">'
+        f'<div class="stat stat-{tone}">{icon_html}'
         f'<div class="stat-label">{label}</div>'
         f'<div class="stat-value">{value}</div>'
         f'<div class="stat-sub">{sub}</div></div>'

@@ -1,5 +1,18 @@
 # Changelog — Sentinel
 
+## v3.4 — Premium UI refresh + clearer data profile
+
+### Added / Changed
+- **Major UI polish:** premium fonts (Plus Jakarta Sans + Inter), an animated aurora
+  background, glowing glass cards with hover-lift and sheen, a shimmering hero,
+  redesigned stat cards (now with icons and a top accent glow), polished buttons
+  (shine sweep), pill tabs with a glowing indicator, gold-accented inputs/sliders,
+  sidebar nav active-state highlight, custom scrollbar, and animated verdict banners.
+- **Summary statistics → column profile:** replaced the raw `df.describe().T` (whose
+  `count` looked identical for every column and confused users) with a readable
+  profile showing dtype, **non-null count, missing %**, unique count, and key stats —
+  plus a caption explaining that identical non-null counts simply mean complete data.
+
 ## v3.3 — Auto-selected scaler + Select-all fix
 
 ### Added
