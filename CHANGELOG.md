@@ -11,6 +11,12 @@
   (Verified: real & synthetic PaySim → robust; Gaussian data → standard.)
 
 ### Fixed
+- **Best-model selection** no longer crowns whichever model edges out ROC-AUC by a
+  noise-level margin. On near-separable data the top models are statistically tied
+  (~0.998 AUC), and a single Decision Tree was winning by 0.0004 despite coarser
+  probabilities and weaker PR-AUC. `pick_best_model` now chooses the best **average
+  rank across PR-AUC, F1, ROC-AUC and LogLoss** — a well-rounded, well-calibrated
+  winner (CatBoost on the sample data). The comparison table now sorts by PR-AUC.
 - **"Select all classic models"** on the Model Training page did nothing — keyed
   checkboxes ignore their `value=` arg on rerun. Now uses an `on_change` callback
   that sets each model checkbox's state (verified: selects all 10 and trains them).

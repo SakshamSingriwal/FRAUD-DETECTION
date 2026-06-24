@@ -340,6 +340,40 @@ def train_automl(name, prep, time_limit=120, beta: float = 1.0):
         return None
 
 
+# ── Best-model selection ─────────────────────────────────────────────────────────
+def pick_best_model(results: dict) -> str | None:
+    """Choose the best model by *consistent* strength across metrics, not a single
+    one.
+
+    Why not just max ROC-AUC: on a near-separable problem the top models are
+    statistically tied (~0.998), so ranking by one metric lets a model win on a
+    noise-level 4th-decimal edge — e.g. a single Decision Tree topping ROC-AUC by
+    0.0004 despite coarser probabilities and weaker PR-AUC. Instead we rank every
+    candidate on PR-AUC, F1, ROC-AUC (higher = better) and LogLoss (lower =
+    better), then pick the lowest average rank. This rewards a well-rounded,
+    well-calibrated model — the right call for imbalanced fraud.
+    """
+    def _ok(r):
+        return ("error" not in r and all(
+            isinstance(r.get(k), (int, float)) and not np.isnan(r.get(k))
+            for k in ("PR-AUC", "F1", "ROC-AUC", "LogLoss")))
+
+    cand = {n: r for n, r in results.items() if _ok(r)}
+    if not cand:                                   # fallback: any usable ROC-AUC
+        roc = {n: r for n, r in results.items()
+               if isinstance(r.get("ROC-AUC"), (int, float)) and not np.isnan(r["ROC-AUC"])}
+        return max(roc, key=lambda n: roc[n]["ROC-AUC"], default=None)
+
+    names = list(cand)
+    score = {n: 0.0 for n in names}
+    for metric, lower_better in [("PR-AUC", False), ("F1", False),
+                                 ("ROC-AUC", False), ("LogLoss", True)]:
+        order = sorted(names, key=lambda n: cand[n][metric], reverse=not lower_better)
+        for rank, n in enumerate(order):
+            score[n] += rank
+    return min(names, key=lambda n: score[n])
+
+
 # ── Persistence ──────────────────────────────────────────────────────────────────
 MODELS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "models")
 os.makedirs(MODELS_DIR, exist_ok=True)

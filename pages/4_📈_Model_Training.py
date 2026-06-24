@@ -6,7 +6,7 @@ import streamlit as st
 from utils.config import setup_page, stat_card, explain
 from utils.model_trainer import (list_supervised_models, train_models, train_automl,
                                  AUTOML_NAMES, save_artifacts, ModelNotPersistableError,
-                                 detection_summary)
+                                 detection_summary, pick_best_model)
 from utils.model_explainer import METRIC_HELP
 from utils.data_processor import _positive_mask
 from utils import unsupervised as un
@@ -137,8 +137,7 @@ if st.button("🚀 Train selected models"):
     status.text("✅ Training complete.")
     s.results = results
 
-    best = max((n for n, r in results.items() if "ROC-AUC" in r and not np.isnan(r["ROC-AUC"])),
-               key=lambda n: results[n]["ROC-AUC"], default=None)
+    best = pick_best_model(results)   # consistent strength across metrics, not one
     if best:
         s.best_model_name = best
         s.best_model = results[best]["model"]
@@ -172,11 +171,13 @@ for name, r in results.items():
         rows.append({"Model": name + (" 🏆" if name == best else ""),
                      **{m: r.get(m) for m in metric_cols}})
 table = pd.DataFrame(rows)
-if "ROC-AUC" in table:
-    table = table.sort_values("ROC-AUC", ascending=False)
+if "PR-AUC" in table:
+    table = table.sort_values("PR-AUC", ascending=False)
 st.dataframe(table, width="stretch")
-st.caption("**Train AUC vs ROC-AUC** is the generalisation check: a large gap ⇒ overfitting; "
-           "both low ⇒ underfitting. The **Fit** column states the verdict per model.")
+st.caption("🏆 **Best model** = best *average rank* across PR-AUC, F1, ROC-AUC and LogLoss — "
+           "rewards consistent strength, so no model wins on a single noise-level metric. "
+           "**Train AUC vs ROC-AUC** is the generalisation check (large gap ⇒ overfitting; "
+           "both low ⇒ underfitting); the **Fit** column states the verdict per model.")
 
 with st.expander("📖 What does each metric mean? (plain English — so you can explain it)"):
     st.markdown("Every column above, defined simply. **TP/FP/FN/TN** = true/false "
