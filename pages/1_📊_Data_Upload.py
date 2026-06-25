@@ -2,12 +2,13 @@
 import pandas as pd
 import streamlit as st
 
-from utils.config import setup_page, stat_card, explain
+from utils.config import setup_page, stat_card, explain, autosave
 from utils.data_processor import (detect_metadata, data_quality_report,
                                   generate_synthetic_fraud, profile_dataframe)
 
 setup_page("Data Upload", "📊",
-           "Drop a CSV — Sentinel auto-detects your target, types, and fraud rate.")
+           "Drop a CSV — Sentinel auto-detects your target, types, and fraud rate.",
+           stage=0)
 
 s = st.session_state
 _STATUS = {"good": "🟢", "warn": "🟡", "bad": "🔴"}
@@ -93,4 +94,5 @@ with st.expander("📊 Summary statistics (column profile)"):
                "shows the full row count with **0% missing** — that means your data is "
                "complete (no gaps), which is exactly what we want.")
 
-st.success("✅ Configuration saved. Continue to **EDA** or **Preprocessing**.")
+st.success("✅ Data ready. Use **Next ➡** in the sidebar to continue to EDA.")
+autosave()

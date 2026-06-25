@@ -2,7 +2,7 @@
 import numpy as np
 import streamlit as st
 
-from utils.config import setup_page, explain
+from utils.config import setup_page, explain, active_model
 from utils.model_trainer import get_proba
 from utils.model_explainer import (global_importance, shap_values_for,
                                    shap_available, top_risk_factors,
@@ -10,14 +10,18 @@ from utils.model_explainer import (global_importance, shap_values_for,
 from utils import visualizer as viz
 
 setup_page("Model Explainability", "📚",
-           "Understand what the model learned — globally and for any single transaction.")
+           "Understand what the model learned — globally and for any single transaction.",
+           stage=5)
 
 s = st.session_state
 prep = s.get("prep")
-model = s.get("best_model")
+model = active_model()
 if model is None or prep is None or prep.get("unsupervised"):
     st.warning("⚠️ Train a supervised model first (Explainability needs a trained classifier).")
     st.stop()
+if s.get("selected_model_name"):
+    st.caption(f"📚 Explaining **{s.get('selected_model_name')}** "
+               f"(change it on the Model Training stage).")
 
 feature_cols = prep["feature_cols"]
 X_test = prep["X_test"]

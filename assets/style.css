@@ -88,6 +88,23 @@ html, body, [data-testid="stAppViewContainer"] {
   -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
 .brand-tag { color: var(--muted); font-size: .68rem; }
 
+/* ── Hide native page nav (navigation is via the guided wizard only) ── */
+[data-testid="stSidebarNav"] { display: none !important; }
+
+/* ── Run chip + wizard stepper ── */
+.run-chip { font-size: .74rem; color: var(--gold-soft); background: rgba(247,183,49,.08);
+  border: 1px solid rgba(247,183,49,.3); border-radius: 10px; padding: 6px 10px;
+  margin: 4px 0 10px; }
+.wz-list { display: flex; flex-direction: column; gap: 5px; margin: 6px 0 10px; }
+.wz { font-size: .78rem; padding: 7px 11px; border-radius: 10px; font-weight: 600;
+  border: 1px solid transparent; }
+.wz-cur  { background: linear-gradient(90deg, rgba(247,183,49,.22), rgba(247,183,49,.05));
+  color: var(--gold-soft); border-color: rgba(247,183,49,.5);
+  box-shadow: inset 3px 0 0 var(--gold), 0 0 14px rgba(247,183,49,.16); }
+.wz-done { background: rgba(46,204,113,.10); color: var(--green);
+  border-color: rgba(46,204,113,.28); }
+.wz-todo { background: rgba(148,168,198,.05); color: #6b7d99; opacity: .65; }
+
 /* ── Pipeline steps ── */
 .steps { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 4px; }
 .step { font-size: .66rem; padding: 3px 9px; border-radius: 20px; font-weight: 600;

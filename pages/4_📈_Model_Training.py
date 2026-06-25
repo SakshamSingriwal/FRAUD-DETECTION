@@ -3,7 +3,8 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-from utils.config import setup_page, stat_card, explain, anchor, request_scroll, apply_scroll
+from utils.config import (setup_page, stat_card, explain, anchor, request_scroll,
+                          apply_scroll, autosave)
 from utils.model_trainer import (list_supervised_models, train_models, train_automl,
                                  AUTOML_NAMES, save_artifacts, ModelNotPersistableError,
                                  detection_summary, pick_best_model)
@@ -13,7 +14,8 @@ from utils import unsupervised as un
 from utils import visualizer as viz
 
 setup_page("Model Training", "📈",
-           "Train, compare, and crown the best model — or detect anomalies with no labels.")
+           "Train, compare, and crown the best model — or detect anomalies with no labels.",
+           stage=3)
 
 s = st.session_state
 prep = s.get("prep")
@@ -44,6 +46,7 @@ if prep.get("unsupervised"):
             prog.progress((i + 1) / len(dets))
         st.success("✅ Done.")
         request_scroll("unsup-results")
+        autosave()
 
     anchor("unsup-results")
     if s.get("unsup_results"):
@@ -146,6 +149,8 @@ if st.button("🚀 Train selected models"):
     if best:
         s.best_model_name = best
         s.best_model = results[best]["model"]
+        s.selected_model_name = best                 # default active model = best
+        s.selected_model = results[best]["model"]
         try:
             save_artifacts(s.best_model, prep["scaler"], prep["feature_cols"], best,
                            extra={"feature_mode": prep["feature_mode"],
@@ -155,6 +160,7 @@ if st.button("🚀 Train selected models"):
             st.success(f"🏆 Best model: **{best}** — saved to `models/`.")
         except ModelNotPersistableError as e:
             st.warning(f"🏆 Best model: **{best}**. {e}")
+    autosave()
 
 results = s.get("results", {})
 if not results:
@@ -180,6 +186,21 @@ table = pd.DataFrame(rows)
 if "PR-AUC" in table:
     table = table.sort_values("PR-AUC", ascending=False)
 st.dataframe(table, width="stretch")
+
+# ── Active model selector (used by Prediction & Deployment) ──────────────────────
+trained = [n for n, r in results.items() if "error" not in r]
+if trained:
+    cur = s.get("selected_model_name") or best
+    idx = trained.index(cur) if cur in trained else 0
+    pick = st.selectbox("🎯 Active model for Prediction & Deployment", trained, index=idx,
+                        help="Pick which trained model the next stages use. Defaults to the "
+                             "best (🏆); switch to compare any other model downstream.")
+    s.selected_model = results[pick]["model"]
+    if s.get("selected_model_name") != pick:
+        s.selected_model_name = pick
+        autosave()
+    if pick != best:
+        st.caption(f"Using **{pick}** downstream (best is **{best}**).")
 st.caption("🏆 **Best model** = best *average rank* across PR-AUC, F1, ROC-AUC and LogLoss — "
            "rewards consistent strength, so no model wins on a single noise-level metric. "
            "**Train AUC vs ROC-AUC** is the generalisation check (large gap ⇒ overfitting; "

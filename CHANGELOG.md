@@ -1,5 +1,26 @@
 # Changelog — Sentinel
 
+## v4.0 — Runs, a guided wizard, and model selection
+
+### Added
+- **Runs** — every analysis is now a self-contained *run* (one full pipeline).
+  The home page is a run manager: **create** a new run, **resume** any earlier run
+  exactly where you left off, and **select + delete** runs to clean up. Each run is
+  saved to disk under `runs/<id>/` (gitignored) and reloaded on demand
+  (`utils/runs.py`).
+- **Guided wizard navigation** — inside a run you move with **Previous / Next**
+  only. The native page menu is hidden and the stage list is a locked stepper
+  (current highlighted, done ✓, upcoming greyed). **Next** unlocks only when the
+  stage is complete (data uploaded / preprocessing run / a model trained).
+- **Active-model selection** — on Model Training you choose which trained model
+  the **Prediction**, **Explainability**, and **Deploy** stages use (defaults to the
+  best 🏆). The Dashboard adds a **Deploy → export model bundle** download.
+
+### Notes
+- Pipeline state autosaves at each step and on navigation, so a half-finished run
+  is always resumable. AutoML (FLAML/AutoGluon) models are session-only and are
+  not persisted in the snapshot (their metrics are kept).
+
 ## v3.7 — Fix empty "Why this prediction" bars
 
 ### Fixed

@@ -6,6 +6,9 @@ models/*.pkl
 catboost_info/
 AutogluonModels/
 
+# Saved pipeline runs (local experiment snapshots)
+runs/
+
 # Local env
 .env
 

@@ -3,13 +3,15 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-from utils.config import setup_page, stat_card, explain, anchor, request_scroll, apply_scroll
+from utils.config import (setup_page, stat_card, explain, anchor, request_scroll,
+                          apply_scroll, autosave)
 from utils.data_processor import (preprocess, prepare_unsupervised, build_feature_frame,
                                   recommend_scaler)
 from utils import visualizer as viz
 
 setup_page("Preprocessing & Feature Engineering", "⚙️",
-           "Configure the pipeline. Everything learns from the training split only — no leakage.")
+           "Configure the pipeline. Everything learns from the training split only — no leakage.",
+           stage=2)
 
 s = st.session_state
 df = s.get("raw_df")
@@ -94,6 +96,7 @@ if st.button("⚙️ Run preprocessing"):
             st.stop()
     st.success("✅ Preprocessing complete.")
     request_scroll("prep-results")
+    autosave()
 
 prep = s.get("prep")
 if not prep:

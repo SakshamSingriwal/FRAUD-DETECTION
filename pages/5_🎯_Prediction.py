@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-from utils.config import setup_page, explain, anchor, apply_scroll
+from utils.config import setup_page, explain, anchor, apply_scroll, active_model
 from utils.data_processor import (prepare_input_for_prediction, PAYSIM_COLS,
                                   TRANSACTION_TYPES)
 from utils.model_trainer import get_proba, load_artifacts
@@ -12,7 +12,8 @@ from utils import unsupervised as un
 from utils import visualizer as viz
 
 setup_page("Prediction", "🎯",
-           "Score single or batch transactions and see exactly why each was flagged.")
+           "Score single or batch transactions and see exactly why each was flagged.",
+           stage=4)
 
 s = st.session_state
 
@@ -22,6 +23,7 @@ with st.sidebar.expander("📂 Load saved model"):
         art = load_artifacts()
         if art:
             s.best_model = art["model"]; s.best_model_name = art["meta"]["name"]
+            s.selected_model = art["model"]; s.selected_model_name = art["meta"]["name"]
             s.scaler = art["scaler"]; s.feature_cols = art["feature_cols"]
             s.prep = s.get("prep") or {"feature_mode": art["meta"].get("feature_mode", "automatic"),
                                        "is_paysim": art["meta"].get("is_paysim", True),
@@ -32,7 +34,10 @@ with st.sidebar.expander("📂 Load saved model"):
 
 prep = s.get("prep")
 unsup = bool(prep and prep.get("unsupervised"))
-has_supervised = s.get("best_model") is not None and not unsup
+has_supervised = active_model() is not None and not unsup
+if has_supervised and s.get("selected_model_name"):
+    st.caption(f"🎯 Scoring with **{s.get('selected_model_name')}** "
+               f"(change it on the Model Training stage).")
 
 tabs = st.tabs(["🔹 Single prediction", "📦 Batch prediction"])
 
@@ -95,10 +100,11 @@ with tabs[0]:
             proba = risk / 100
             factors = None
         else:
-            model = s.best_model
+            model = active_model()
+            active_name = s.get("selected_model_name") or s.best_model_name
             proba = float(get_proba(model, X)[0])
             threshold = (prep or {}).get("threshold") or \
-                s.get("results", {}).get(s.best_model_name, {}).get("Threshold", 0.5)
+                s.get("results", {}).get(active_name, {}).get("Threshold", 0.5)
             is_fraud = proba >= threshold
             factors = top_risk_factors(model, X[0], feature_cols)
 
@@ -149,9 +155,9 @@ with tabs[1]:
         proba = res["risk"] / 100
         threshold = 0.5
     else:
-        proba = get_proba(s.best_model, X)
+        proba = get_proba(active_model(), X)
         threshold = (prep or {}).get("threshold") or \
-            s.get("results", {}).get(s.best_model_name, {}).get("Threshold", 0.5)
+            s.get("results", {}).get(s.get("selected_model_name") or s.best_model_name, {}).get("Threshold", 0.5)
     threshold = st.slider("Decision threshold", 0.01, 0.99, float(threshold), 0.01)
     out = raw.copy()
     out["fraud_probability"] = proba

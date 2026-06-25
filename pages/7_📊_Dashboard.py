@@ -3,14 +3,33 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-from utils.config import setup_page, stat_card, glass_card
+import io
+import joblib
+from utils.config import setup_page, stat_card, glass_card, active_model
 from utils.model_explainer import METRIC_HELP
 from utils.data_processor import drift_report
 
 setup_page("Dashboard", "📊",
-           "Executive summary, fraud-pattern library, and a plain-English learning center.")
+           "Executive summary, fraud-pattern library, and a plain-English learning center.",
+           stage=6)
 
 s = st.session_state
+
+# ── Deploy / export the active model ────────────────────────────────────────────
+if active_model() is not None and not (s.get("prep") or {}).get("unsupervised"):
+    with st.expander("🚀 Deploy — export the active model"):
+        name = s.get("selected_model_name") or s.get("best_model_name") or "model"
+        st.markdown(f"Bundle **{name}** + its scaler & feature list into one file you "
+                    "can load elsewhere with `joblib.load(...)`.")
+        try:
+            buf = io.BytesIO()
+            joblib.dump({"model": active_model(), "scaler": s.get("scaler"),
+                         "feature_cols": s.get("feature_cols"), "name": name,
+                         "threshold": (s.get("prep") or {}).get("threshold")}, buf)
+            st.download_button("⬇️ Download model bundle (.joblib)", buf.getvalue(),
+                               file_name=f"{name.replace(' ', '_')}_bundle.joblib")
+        except Exception as e:
+            st.caption(f"This model can't be exported to a file ({e}).")
 
 tab_sum, tab_patterns, tab_learn = st.tabs(
     ["📈 Summary", "🧩 Fraud Pattern Library", "🎓 Learning Center"])

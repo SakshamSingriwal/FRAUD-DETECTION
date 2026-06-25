@@ -8,7 +8,7 @@ from utils.data_processor import _positive_mask
 from utils import visualizer as viz
 
 setup_page("Exploratory Data Analysis", "🔍",
-           "Interactive charts and plain-English insights about your data.")
+           "Interactive charts and plain-English insights about your data.", stage=1)
 
 s = st.session_state
 df = s.get("raw_df")
