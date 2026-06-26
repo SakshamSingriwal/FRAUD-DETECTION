@@ -98,38 +98,21 @@ for i, name in enumerate(all_models):
     if cols[i % 3].checkbox(name + (" ⚡" if is_automl else ""), key=f"m_{name}"):
         selected.append(name)
 
-# ── Decision objective (threshold strategy) ──────────────────────────────────────
-st.markdown("#### 🎚️ Decision objective")
-obj = st.radio(
-    "How should the threshold be set?",
-    ["🛡️ Catch all fraud (recall-first)", "⚖️ Balanced (F1)"],
-    horizontal=True,
-    help="Recall-first lowers the cut so (almost) no fraud is missed — at the cost of "
-         "more false alarms. Balanced (F1) trades the two off evenly.")
-target_recall = None
-if obj.startswith("🛡️"):
-    target_recall = st.slider("Minimum fraud capture (recall target)", 0.90, 1.00, 1.00, 0.01,
-                              help="1.00 = miss no fraud on validation (most false alarms). "
-                                   "Lower it slightly if there are too many false alarms.")
-    st.caption(f"⛔ Threshold tuned to catch **≥ {target_recall:.0%}** of frauds — "
-               "missed-fraud (FN) is minimised, false alarms (FP) may rise. This is the "
-               "right call when a missed fraud costs far more than reviewing a flagged "
-               "legit transaction.")
-
 c1, c2 = st.columns([1, 2])
 with c1:
     time_limit = st.slider("AutoML time budget (s)", 30, 300, 90, 10)
 
 explain(
-    "**How the decision threshold is chosen:** *Recall-first* picks the cut that catches "
-    "your target share of frauds with the fewest false alarms (so missed fraud → 0); "
-    "*Balanced* maximises F1. Either way the threshold is tuned on the **validation** "
-    "split and all metrics are reported on the untouched **test** split.\n\n"
+    "**How the decision threshold is chosen:** for each model we pick the probability "
+    "cut that **maximises F1 on the validation split** (a balanced trade-off between "
+    "catching fraud and avoiding false alarms), then report all metrics on the untouched "
+    "test split — no business cost assumptions needed.\n\n"
     "**Best model** = highest Recall, then Precision, then PR-AUC (rounded, so the winner "
-    "is stable across identical runs).\n\n"
+    "is **stable** across identical runs).\n\n"
     "**Avoiding under/over-fitting:** models use regularised settings (shallow trees, "
-    "leaf-size floors, subsampling, L2); boosters use early stopping on the validation "
-    "set, and each is labelled **underfit / good / overfit** from its train→test AUC gap.")
+    "leaf-size floors, subsampling, L2; the neural net uses L2 + early stopping); boosters "
+    "use early stopping on the validation set, and each is labelled **underfit / good / "
+    "overfit** from its train→test AUC gap.")
 
 if not selected:
     st.info("Select at least one model.")
@@ -146,12 +129,11 @@ if st.button("🚀 Train selected models"):
         def cb(frac, name):
             prog.progress(frac * len(classic_sel) / len(selected))
             status.text(f"✅ Trained: {name}")
-        results.update(train_models(classic_sel, prep, progress_cb=cb,
-                                    target_recall=target_recall))
+        results.update(train_models(classic_sel, prep, progress_cb=cb))
 
     for j, name in enumerate(automl_sel):
         status.text(f"⏳ Running {name} (≤{time_limit}s)…")
-        r = train_automl(name, prep, time_limit, target_recall=target_recall)
+        r = train_automl(name, prep, time_limit)
         if r and "error" not in r:
             results[name] = r
         else:

@@ -1,5 +1,20 @@
 # Changelog — Sentinel
 
+## v4.2 — Back to balanced threshold + a Neural Network model
+
+### Changed
+- **Reverted the default decision threshold to Balanced (F1).** Recall-first at 1.00
+  pushed false positives too high (one hard-to-catch fraud dragged the cut very low),
+  so the threshold again **maximises F1 on validation** — a sensible FN/FP balance.
+  (The recall-first option/slider was removed.) The **best model** is still chosen
+  recall-first on rounded metrics, so the winner stays **stable** across runs.
+
+### Added
+- **Neural Network** model on the Model Training page — a feed-forward MLP
+  (two hidden layers, ReLU, L2 regularisation + early stopping). It plugs into the
+  same pipeline (scaled inputs, probabilities, fit diagnosis). Needs no extra
+  install — it's part of scikit-learn, already in the environment.
+
 ## v4.1 — Session-only, recall-first, and a non-sticky Next button
 
 ### Changed / Removed

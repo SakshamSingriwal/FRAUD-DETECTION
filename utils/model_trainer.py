@@ -19,6 +19,7 @@ import numpy as np
 import pandas as pd
 import joblib
 from sklearn.linear_model import LogisticRegression
+from sklearn.neural_network import MLPClassifier
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.ensemble import (RandomForestClassifier, GradientBoostingClassifier,
                               StackingClassifier, VotingClassifier, IsolationForest)
@@ -216,6 +217,13 @@ def build_registry(use_class_weights: bool = False, rs: int = RANDOM_STATE) -> d
         # Shallow boosted stumps + slow learning + row subsampling.
         "Gradient Boosting": GradientBoostingClassifier(n_estimators=300, learning_rate=0.05,
                                                         max_depth=3, subsample=0.8, random_state=rs),
+        # Feed-forward neural net (MLP). Two hidden layers, L2 (alpha) + early
+        # stopping on an internal validation slice keep it from over/under-fitting.
+        # Needs scaled inputs — the pipeline already scales features.
+        "Neural Network": MLPClassifier(hidden_layer_sizes=(64, 32), activation="relu",
+                                        alpha=1e-3, batch_size=256, learning_rate_init=1e-3,
+                                        early_stopping=True, n_iter_no_change=10,
+                                        max_iter=300, random_state=rs),
     }
     try:
         from xgboost import XGBClassifier
