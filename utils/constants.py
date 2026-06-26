@@ -8,7 +8,7 @@ plotting modules import cleanly and stay unit-testable without a UI runtime.
 # ── Branding ──
 APP_NAME    = "Sentinel"
 APP_TAGLINE = "AI Fraud Detection Studio"
-APP_VERSION = "3.0"
+APP_VERSION = "4.4"
 
 # ── Palette ──
 NAVY        = "#0a1628"
