@@ -103,16 +103,21 @@ with c1:
     time_limit = st.slider("AutoML time budget (s)", 30, 300, 90, 10)
 
 explain(
-    "**How the decision threshold is chosen:** for each model we pick the probability "
-    "cut that **maximises F1 on the validation split** (a balanced trade-off between "
-    "catching fraud and avoiding false alarms), then report all metrics on the untouched "
-    "test split — no business cost assumptions needed.\n\n"
-    "**Best model** = highest Recall, then Precision, then PR-AUC (rounded, so the winner "
-    "is **stable** across identical runs).\n\n"
-    "**Avoiding under/over-fitting:** models use regularised settings (shallow trees, "
-    "leaf-size floors, subsampling, L2; the neural net uses L2 + early stopping); boosters "
-    "use early stopping on the validation set, and each is labelled **underfit / good / "
-    "overfit** from its train→test AUC gap.")
+    "**Best model — by PR-AUC.** For imbalanced fraud the right metric is **PR-AUC** "
+    "(average precision): it measures how well a model ranks fraud above legit while "
+    "focusing on the rare fraud class. ROC-AUC is misleading here because it rewards "
+    "getting the huge, easy legit majority right. We pick the highest PR-AUC, breaking "
+    "ties by F1 → LogLoss (calibration) → ROC-AUC, all rounded — so the winner is the "
+    "same every run. This is why gradient-boosted trees (CatBoost/XGBoost) usually win "
+    "tabular fraud.\n\n"
+    "**Decision threshold — business logic.** A missed fraud costs far more than a false "
+    "alarm (you lose the transaction vs. a minute of review). So the cut maximises "
+    "**F-beta with β=2**, which weights recall ~2× precision — tuned on the **validation** "
+    "split (never the test split, to avoid leakage) and reported on test.\n\n"
+    "**No over/under-fitting:** regularised models (shallow trees, leaf-size floors, "
+    "subsampling, L2; the neural net uses L2 + early stopping); boosters early-stop on "
+    "validation. Each model is labelled **underfit / good / overfit** from its train→test "
+    "AUC gap.")
 
 if not selected:
     st.info("Select at least one model.")

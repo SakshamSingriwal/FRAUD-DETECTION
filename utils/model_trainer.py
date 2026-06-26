@@ -301,8 +301,10 @@ def list_supervised_models() -> list[str]:
 
 
 # ── Training ──────────────────────────────────────────────────────────────────────
-def train_models(selected, prep, beta: float = 1.0, progress_cb=None,
+def train_models(selected, prep, beta: float = 2.0, progress_cb=None,
                  target_recall: float | None = None) -> dict:
+    # beta=2 (F2): the threshold weights recall ~2x precision, because a missed
+    # fraud costs materially more than a false alarm — a business-grounded default.
     use_cw = not prep.get("apply_smote", False)
     reg = build_registry(use_class_weights=use_cw)
     Xtr, ytr = prep["X_train"], prep["y_train"]
@@ -328,7 +330,7 @@ def train_models(selected, prep, beta: float = 1.0, progress_cb=None,
     return results
 
 
-def train_automl(name, prep, time_limit=120, beta: float = 1.0,
+def train_automl(name, prep, time_limit=120, beta: float = 2.0,
                  target_recall: float | None = None):
     """Best-effort AutoML (FLAML, AutoGluon). Returns a result dict on success, or
     ``{"error": msg}`` explaining exactly why it could not run (e.g. not installed)
@@ -364,18 +366,24 @@ def train_automl(name, prep, time_limit=120, beta: float = 1.0,
 
 # ── Best-model selection ─────────────────────────────────────────────────────────
 def pick_best_model(results: dict) -> str | None:
-    """Choose the best model — recall-first, the way a fraud team would.
+    """Choose the best model the way a fraud problem actually demands.
 
-    The priority is **catch the most fraud** (highest Recall), then **bother the
-    fewest honest customers** (highest Precision), then ranking quality (PR-AUC)
-    and calibration (lowest LogLoss). Metrics are rounded to 4 decimals before
-    comparison so two genuinely-tied models don't flip the winner on float noise —
-    so the chosen model is **stable** across identical training runs.
+    Primary metric = **PR-AUC** (average precision): the threshold-independent,
+    textbook metric for an imbalanced rare-positive task. It measures how well a
+    model ranks fraud above legitimate transactions while focusing on the fraud
+    class — unlike ROC-AUC, which is optimistic on imbalance because it rewards
+    classifying the huge, easy legit majority. This is *why* gradient-boosted
+    trees (CatBoost / XGBoost) tend to win tabular fraud tasks.
+
+    Ties (metrics rounded to 4 dp) break by **F1** (operating-point quality),
+    then **LogLoss** (probability calibration, lower better), then **ROC-AUC**,
+    then the name — so the winner is **deterministic and stable** across identical
+    runs (no more flip-flopping between near-tied models).
     """
     def _ok(r):
         return ("error" not in r and all(
             isinstance(r.get(k), (int, float)) and not np.isnan(r.get(k))
-            for k in ("Recall", "Precision", "PR-AUC", "LogLoss")))
+            for k in ("PR-AUC", "F1", "LogLoss", "ROC-AUC")))
 
     cand = {n: r for n, r in results.items() if _ok(r)}
     if not cand:                                   # fallback: any usable ROC-AUC
@@ -385,9 +393,8 @@ def pick_best_model(results: dict) -> str | None:
 
     def key(n):
         r = cand[n]
-        return (round(r["Recall"], 4), round(r["Precision"], 4),
-                round(r["PR-AUC"], 4), -round(r["LogLoss"], 4), n)
-    # Sort by the tuple (incl. name as a final deterministic tiebreak), take the top.
+        return (round(r["PR-AUC"], 4), round(r["F1"], 4), -round(r["LogLoss"], 4),
+                round(r["ROC-AUC"], 4), n)
     return sorted(cand, key=key, reverse=True)[0]
 
 

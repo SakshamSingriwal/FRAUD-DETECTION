@@ -1,5 +1,22 @@
 # Changelog — Sentinel
 
+## v4.3 — Principled best-model & threshold; simpler home
+
+### Changed
+- **Best model is now chosen by PR-AUC** (average precision) — the correct,
+  threshold-independent metric for an imbalanced rare-positive task (it focuses on
+  the fraud class instead of being inflated by the easy legit majority like
+  ROC-AUC). Ties break by F1 → LogLoss (calibration) → ROC-AUC, all rounded, so the
+  winner is **deterministic**. On this data that's **CatBoost** (PR-AUC 0.9915,
+  best-calibrated) — a gradient-boosted tree, the right family for tabular fraud.
+- **Decision threshold uses F-beta with β=2** (recall weighted ~2× precision),
+  grounded in the business reality that a missed fraud costs far more than a false
+  alarm. Still tuned on validation only. On this data it catches 223/228 frauds
+  with **zero false alarms**.
+- **Simplified the home page** — removed the "Continue this session" card and the
+  empty launch-screen stats. Home is now a clean single **"Start new analysis"**
+  launcher plus the pipeline overview.
+
 ## v4.2 — Back to balanced threshold + a Neural Network model
 
 ### Changed
