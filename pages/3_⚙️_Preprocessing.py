@@ -4,7 +4,7 @@ import pandas as pd
 import streamlit as st
 
 from utils.config import (setup_page, stat_card, explain, anchor, request_scroll,
-                          apply_scroll, autosave)
+                          apply_scroll)
 from utils.data_processor import (preprocess, prepare_unsupervised, build_feature_frame,
                                   recommend_scaler)
 from utils import visualizer as viz
@@ -96,7 +96,6 @@ if st.button("⚙️ Run preprocessing"):
             st.stop()
     st.success("✅ Preprocessing complete.")
     request_scroll("prep-results")
-    autosave()
 
 prep = s.get("prep")
 if not prep:

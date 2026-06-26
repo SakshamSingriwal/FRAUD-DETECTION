@@ -92,18 +92,34 @@ class IsolationForestWrapper:
 
 
 # ── Threshold & evaluation ───────────────────────────────────────────────────────
-def best_threshold(y_true, y_proba, beta: float = 1.0) -> float:
-    """Pick the probability cut that maximises the F-beta score on the given
-    (validation) data.
+def best_threshold(y_true, y_proba, beta: float = 1.0,
+                   target_recall: float | None = None) -> float:
+    """Pick the probability cut on the given (validation) data.
 
-    Why F-beta instead of a cost model: it needs no business assumptions, is
-    well-defined for any dataset, and directly balances catching fraud (recall)
-    against false alarms (precision). beta=1 → F1 (balanced). The threshold is
-    chosen on validation only; the test set stays untouched.
+    Two strategies (the threshold is always chosen on validation only; the test
+    set stays untouched):
+
+    * **Recall-first** (``target_recall`` set, e.g. 1.0): "don't miss fraud".
+      Pick the *highest* threshold that still catches at least ``target_recall``
+      of the frauds — i.e. catch (almost) all fraud while blocking as few honest
+      customers as possible. With target 1.0 this is the lowest fraud score, so
+      every fraud in validation is caught (FN → 0), accepting more false alarms.
+    * **F-beta** (``target_recall`` None): balances recall vs precision
+      (beta=1 → F1). No business assumptions, well-defined for any dataset.
     """
     y_true = np.asarray(y_true)
     if y_true.min() == y_true.max():          # single class → nothing to tune
         return 0.5
+
+    if target_recall is not None:
+        pos = np.asarray(y_proba)[y_true == 1]
+        if len(pos) == 0:
+            return 0.5
+        # (1 - target_recall) quantile of fraud scores → that share of frauds may
+        # fall below it; the rest (>= target_recall) are caught.
+        thr = float(np.quantile(pos, max(0.0, 1.0 - float(target_recall))))
+        return float(np.clip(thr, 0.005, 0.99))
+
     prec, rec, thr = precision_recall_curve(y_true, y_proba)
     prec, rec = prec[:-1], rec[:-1]           # align with the thr array
     denom = (beta ** 2) * prec + rec
@@ -140,13 +156,14 @@ def _fit_diagnosis(train_auc, test_auc, test_pr_auc) -> tuple[str, str]:
     return "good", f"train−test AUC gap {gap:.2f} — generalises well"
 
 
-def evaluate(model, X_train, y_train, X_val, y_val, X_test, y_test, beta: float = 1.0) -> dict:
-    """Tune the threshold on validation (F-beta), report every metric on the
-    untouched test set, and diagnose under/over-fitting from the train-vs-test
-    ROC-AUC gap."""
+def evaluate(model, X_train, y_train, X_val, y_val, X_test, y_test, beta: float = 1.0,
+             target_recall: float | None = None) -> dict:
+    """Tune the threshold on validation (recall-first or F-beta), report every
+    metric on the untouched test set, and diagnose under/over-fitting from the
+    train-vs-test ROC-AUC gap."""
     y_train = np.asarray(y_train); y_val = np.asarray(y_val); y_test = np.asarray(y_test)
 
-    threshold = best_threshold(y_val, get_proba(model, X_val), beta)
+    threshold = best_threshold(y_val, get_proba(model, X_val), beta, target_recall)
 
     proba = get_proba(model, X_test)
     pred = (proba >= threshold).astype(int)
@@ -276,7 +293,8 @@ def list_supervised_models() -> list[str]:
 
 
 # ── Training ──────────────────────────────────────────────────────────────────────
-def train_models(selected, prep, beta: float = 1.0, progress_cb=None) -> dict:
+def train_models(selected, prep, beta: float = 1.0, progress_cb=None,
+                 target_recall: float | None = None) -> dict:
     use_cw = not prep.get("apply_smote", False)
     reg = build_registry(use_class_weights=use_cw)
     Xtr, ytr = prep["X_train"], prep["y_train"]
@@ -291,7 +309,7 @@ def train_models(selected, prep, beta: float = 1.0, progress_cb=None) -> dict:
         t0 = time.time()
         try:
             _fit(model, name, Xtr, ytr, Xvl, yvl)   # early stopping for boosters
-            m = evaluate(model, Xtr, ytr, Xvl, yvl, Xte, yte, beta)
+            m = evaluate(model, Xtr, ytr, Xvl, yvl, Xte, yte, beta, target_recall)
             m["model"] = model
             m["train_time"] = round(time.time() - t0, 2)
             results[name] = m
@@ -302,7 +320,8 @@ def train_models(selected, prep, beta: float = 1.0, progress_cb=None) -> dict:
     return results
 
 
-def train_automl(name, prep, time_limit=120, beta: float = 1.0):
+def train_automl(name, prep, time_limit=120, beta: float = 1.0,
+                 target_recall: float | None = None):
     """Best-effort AutoML (FLAML, AutoGluon). Returns a result dict on success, or
     ``{"error": msg}`` explaining exactly why it could not run (e.g. not installed)
     so the UI can show the real reason instead of a vague 'skipped'. Scored with the
@@ -324,7 +343,7 @@ def train_automl(name, prep, time_limit=120, beta: float = 1.0):
                                      verbosity=0).fit(tdf, time_limit=time_limit)
         else:
             return {"error": f"'{name}' is not a recognised AutoML option."}
-        m = evaluate(model, Xtr, ytr, Xvl, yvl, Xte, yte, beta)
+        m = evaluate(model, Xtr, ytr, Xvl, yvl, Xte, yte, beta, target_recall)
         m["model"] = model
         m["train_time"] = round(time.time() - t0, 2)
         m["is_automl"] = True
@@ -337,21 +356,18 @@ def train_automl(name, prep, time_limit=120, beta: float = 1.0):
 
 # ── Best-model selection ─────────────────────────────────────────────────────────
 def pick_best_model(results: dict) -> str | None:
-    """Choose the best model by *consistent* strength across metrics, not a single
-    one.
+    """Choose the best model — recall-first, the way a fraud team would.
 
-    Why not just max ROC-AUC: on a near-separable problem the top models are
-    statistically tied (~0.998), so ranking by one metric lets a model win on a
-    noise-level 4th-decimal edge — e.g. a single Decision Tree topping ROC-AUC by
-    0.0004 despite coarser probabilities and weaker PR-AUC. Instead we rank every
-    candidate on PR-AUC, F1, ROC-AUC (higher = better) and LogLoss (lower =
-    better), then pick the lowest average rank. This rewards a well-rounded,
-    well-calibrated model — the right call for imbalanced fraud.
+    The priority is **catch the most fraud** (highest Recall), then **bother the
+    fewest honest customers** (highest Precision), then ranking quality (PR-AUC)
+    and calibration (lowest LogLoss). Metrics are rounded to 4 decimals before
+    comparison so two genuinely-tied models don't flip the winner on float noise —
+    so the chosen model is **stable** across identical training runs.
     """
     def _ok(r):
         return ("error" not in r and all(
             isinstance(r.get(k), (int, float)) and not np.isnan(r.get(k))
-            for k in ("PR-AUC", "F1", "ROC-AUC", "LogLoss")))
+            for k in ("Recall", "Precision", "PR-AUC", "LogLoss")))
 
     cand = {n: r for n, r in results.items() if _ok(r)}
     if not cand:                                   # fallback: any usable ROC-AUC
@@ -359,14 +375,12 @@ def pick_best_model(results: dict) -> str | None:
                if isinstance(r.get("ROC-AUC"), (int, float)) and not np.isnan(r["ROC-AUC"])}
         return max(roc, key=lambda n: roc[n]["ROC-AUC"], default=None)
 
-    names = list(cand)
-    score = {n: 0.0 for n in names}
-    for metric, lower_better in [("PR-AUC", False), ("F1", False),
-                                 ("ROC-AUC", False), ("LogLoss", True)]:
-        order = sorted(names, key=lambda n: cand[n][metric], reverse=not lower_better)
-        for rank, n in enumerate(order):
-            score[n] += rank
-    return min(names, key=lambda n: score[n])
+    def key(n):
+        r = cand[n]
+        return (round(r["Recall"], 4), round(r["Precision"], 4),
+                round(r["PR-AUC"], 4), -round(r["LogLoss"], 4), n)
+    # Sort by the tuple (incl. name as a final deterministic tiebreak), take the top.
+    return sorted(cand, key=key, reverse=True)[0]
 
 
 # ── Persistence ──────────────────────────────────────────────────────────────────

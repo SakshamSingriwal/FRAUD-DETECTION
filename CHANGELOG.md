@@ -1,5 +1,26 @@
 # Changelog — Sentinel
 
+## v4.1 — Session-only, recall-first, and a non-sticky Next button
+
+### Changed / Removed
+- **Removed run persistence** — the app no longer saves runs to disk; every time
+  you open it you start a **fresh session** (Home → "Start new analysis"). The
+  guided wizard (Previous / Next, locked stepper) stays. (`utils/runs.py` deleted.)
+- **Recall-first decision objective** — Model Training now defaults to
+  **"Catch all fraud (recall-first)"** with a recall-target slider (default 1.00).
+  The threshold is set to catch your target share of frauds with the fewest false
+  alarms, so **missed fraud (FN) → 0**, accepting more false positives — the right
+  call when a missed fraud costs far more than reviewing a flagged legit txn.
+  "Balanced (F1)" is still available.
+- **Stable winner** — `pick_best_model` now ranks recall → precision → PR-AUC →
+  LogLoss with rounded metrics, so the **same model wins on identical runs** (no
+  more flip-flopping between near-tied models). The active model is also selectable.
+
+### Fixed
+- **Next button no longer "greys out" when scrolling** — it's always clickable and
+  checks completion on click (showing a toast if the step isn't done), instead of a
+  `disabled` flag that could go stale on a rerun.
+
 ## v4.0 — Runs, a guided wizard, and model selection
 
 ### Added

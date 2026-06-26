@@ -54,7 +54,7 @@ _PIPELINE_KEYS = {
     "current_stage":   0,      # wizard position
     "max_stage":       0,      # furthest stage reached (for the stepper)
 }
-_DEFAULT_STATE = {**_PIPELINE_KEYS, "active_run_id": None, "active_run_name": None}
+_DEFAULT_STATE = dict(_PIPELINE_KEYS)   # session-only; nothing is persisted to disk
 
 
 def init_state() -> None:
@@ -69,32 +69,10 @@ def reset_pipeline_state() -> None:
         st.session_state[k] = ({} if isinstance(v, dict) else v)
 
 
-def apply_loaded_state(state: dict) -> None:
-    """Populate session_state from a saved run, then rebuild model objects."""
-    for k, v in state.items():
-        st.session_state[k] = v
-    s = st.session_state
-    res = s.get("results") or {}
-    bn = s.get("best_model_name")
-    if bn in res and "model" in res[bn]:
-        s["best_model"] = res[bn]["model"]
-    sn = s.get("selected_model_name") or bn
-    if sn in res and "model" in res[sn]:
-        s["selected_model_name"], s["selected_model"] = sn, res[sn]["model"]
-
-
 def active_model():
     """The model chosen for prediction/deployment (falls back to best)."""
     s = st.session_state
     return s.get("selected_model") or s.get("best_model")
-
-
-def autosave() -> None:
-    """Persist the current run if one is active."""
-    from utils import runs
-    rid = st.session_state.get("active_run_id")
-    if rid:
-        runs.save_run(rid, st.session_state)
 
 
 # ── Theme / CSS ────────────────────────────────────────────────────────────────
@@ -120,8 +98,8 @@ def setup_page(title: str, icon: str = "🛡️", subtitle: str = "",
     st.markdown(f"<style>{_css()}</style>", unsafe_allow_html=True)
     _sidebar_brand(stage)
     if stage is not None:
-        _require_run()
         st.session_state["current_stage"] = stage
+        st.session_state["max_stage"] = max(int(st.session_state.get("max_stage", 0) or 0), stage)
     if title:
         page_header(title, subtitle, icon)
 
@@ -140,15 +118,10 @@ def _sidebar_brand(stage: int | None = None) -> None:
             """,
             unsafe_allow_html=True,
         )
-        run_name = st.session_state.get("active_run_name")
-        if run_name:
-            st.markdown(f'<div class="run-chip">▶ Run: <b>{run_name}</b></div>',
-                        unsafe_allow_html=True)
         if stage is not None:
             _wizard_stepper(stage)
             _wizard_nav(stage)
-        if st.button("🏠 Runs home", key="wz_home", use_container_width=True):
-            autosave()
+        if st.button("🏠 Home", key="wz_home", use_container_width=True):
             st.switch_page(HOME_PAGE)
 
 
@@ -171,20 +144,12 @@ def _wizard_stepper(current: int) -> None:
                     unsafe_allow_html=True)
 
 
-def _require_run() -> None:
-    if not st.session_state.get("active_run_id"):
-        st.warning("No active run. Open or create one from **Runs home**.")
-        if st.button("🏠 Go to Runs home"):
-            st.switch_page(HOME_PAGE)
-        st.stop()
-
-
-_STAGE_HINT = {0: "Upload data to continue", 2: "Run preprocessing to continue",
-               3: "Train at least one model to continue"}
+_STAGE_HINT = {0: "Upload data first", 2: "Run preprocessing first",
+               3: "Train at least one model first"}
 
 
 def _stage_complete(stage: int) -> bool:
-    """Whether the user may advance from this stage (gates the Next button)."""
+    """Whether the user may advance from this stage (checked when Next is clicked)."""
     s = st.session_state
     if stage == 0:
         return s.get("raw_df") is not None
@@ -196,25 +161,30 @@ def _stage_complete(stage: int) -> bool:
 
 
 def _wizard_nav(stage: int) -> None:
-    """Previous / Next buttons — the only way to move between stages."""
-    can_next = _stage_complete(stage)
+    """Previous / Next buttons — the only way to move between stages.
+
+    The Next button is always clickable (so it can't 'grey out' on a rerun whose
+    state is momentarily stale); completion is checked at click time instead.
+    """
     n1, n2 = st.columns(2)
     with n1:
         if stage > 0 and st.button("⬅ Prev", key="wz_prev", use_container_width=True):
             _goto(stage - 1)
     with n2:
         if stage < len(STAGES) - 1 and st.button("Next ➡", key="wz_next", type="primary",
-                                                 disabled=not can_next, use_container_width=True):
-            _goto(stage + 1)
-    if stage < len(STAGES) - 1 and not can_next:
-        st.caption(f"⛔ {_STAGE_HINT.get(stage, 'Finish this step to continue')}")
+                                                 use_container_width=True):
+            if _stage_complete(stage):
+                _goto(stage + 1)
+            else:
+                st.toast(f"⛔ {_STAGE_HINT.get(stage, 'Finish this step first')}", icon="⛔")
+    if stage < len(STAGES) - 1 and not _stage_complete(stage):
+        st.caption(f"Tip: {_STAGE_HINT.get(stage, 'finish this step to continue')}.")
 
 
 def _goto(stage: int) -> None:
     stage = max(0, min(stage, len(STAGES) - 1))
     st.session_state["current_stage"] = stage
     st.session_state["max_stage"] = max(int(st.session_state.get("max_stage", 0) or 0), stage)
-    autosave()
     st.switch_page(STAGES[stage][1])
 
 

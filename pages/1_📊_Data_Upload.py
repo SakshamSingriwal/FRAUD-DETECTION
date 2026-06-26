@@ -2,7 +2,7 @@
 import pandas as pd
 import streamlit as st
 
-from utils.config import setup_page, stat_card, explain, autosave
+from utils.config import setup_page, stat_card, explain
 from utils.data_processor import (detect_metadata, data_quality_report,
                                   generate_synthetic_fraud, profile_dataframe)
 
@@ -95,4 +95,3 @@ with st.expander("📊 Summary statistics (column profile)"):
                "complete (no gaps), which is exactly what we want.")
 
 st.success("✅ Data ready. Use **Next ➡** in the sidebar to continue to EDA.")
-autosave()
