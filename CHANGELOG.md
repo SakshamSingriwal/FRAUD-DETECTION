@@ -1,5 +1,17 @@
 # Changelog — Sentinel
 
+## v4.4 — Lock the winner: tie-tolerant best-model selection
+
+### Fixed
+- **The "best model" no longer changes between runs.** The top models sit within a
+  fraction of a percent of each other on PR-AUC, so picking the literal maximum let
+  a different model win depending on which ones were trained (e.g. a Voting/Stacking
+  ensemble edging CatBoost by ~0.0006 — noise). `pick_best_model` now treats models
+  within **0.01 PR-AUC** of the best as **tied**, then prefers a **single model over
+  an ensemble** (interpretable, SHAP-explainable, simple to deploy) and the
+  **best-calibrated** one (lowest LogLoss). Verified: **CatBoost wins in every
+  model-subset combination** (with ensembles, without, etc.) — a stable winner.
+
 ## v4.3 — Principled best-model & threshold; simpler home
 
 ### Changed

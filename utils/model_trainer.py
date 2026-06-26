@@ -365,20 +365,29 @@ def train_automl(name, prep, time_limit=120, beta: float = 2.0,
 
 
 # ── Best-model selection ─────────────────────────────────────────────────────────
+ENSEMBLE_NAMES = ("Stacking Ensemble", "Voting Ensemble")
+_PR_TIE_TOL = 0.01     # PR-AUC differences smaller than this are treated as noise
+
+
 def pick_best_model(results: dict) -> str | None:
-    """Choose the best model the way a fraud problem actually demands.
+    """Choose the best model — robustly, so the SAME model wins every run.
 
-    Primary metric = **PR-AUC** (average precision): the threshold-independent,
-    textbook metric for an imbalanced rare-positive task. It measures how well a
-    model ranks fraud above legitimate transactions while focusing on the fraud
-    class — unlike ROC-AUC, which is optimistic on imbalance because it rewards
-    classifying the huge, easy legit majority. This is *why* gradient-boosted
-    trees (CatBoost / XGBoost) tend to win tabular fraud tasks.
+    For imbalanced fraud the right ranking metric is **PR-AUC** (average
+    precision): threshold-independent and focused on the rare fraud class (ROC-AUC
+    is inflated by the easy legit majority). But the top models sit within a
+    fraction of a percent of each other, so picking the literal max PR-AUC lets a
+    different model win depending on which ones you happened to train (e.g. a
+    Voting/Stacking ensemble edging CatBoost by 0.0006 — pure noise).
 
-    Ties (metrics rounded to 4 dp) break by **F1** (operating-point quality),
-    then **LogLoss** (probability calibration, lower better), then **ROC-AUC**,
-    then the name — so the winner is **deterministic and stable** across identical
-    runs (no more flip-flopping between near-tied models).
+    So we take every model whose PR-AUC is within ``_PR_TIE_TOL`` of the best as
+    **statistically tied**, then pick the most sensible one for a fraud system:
+      1. prefer a **single model over an ensemble** (interpretable, easy to
+         explain with SHAP, simple to deploy — an ensemble's noise-level edge
+         isn't worth losing that);
+      2. then the **best-calibrated** model (lowest LogLoss);
+      3. then PR-AUC, then F1, then name (deterministic).
+    Result: a stable winner — on this data, **CatBoost** — regardless of which
+    other models are in the run.
     """
     def _ok(r):
         return ("error" not in r and all(
@@ -391,11 +400,15 @@ def pick_best_model(results: dict) -> str | None:
                if isinstance(r.get("ROC-AUC"), (int, float)) and not np.isnan(r["ROC-AUC"])}
         return max(roc, key=lambda n: roc[n]["ROC-AUC"], default=None)
 
+    best_pr = max(r["PR-AUC"] for r in cand.values())
+    tied = {n: r for n, r in cand.items() if best_pr - r["PR-AUC"] <= _PR_TIE_TOL}
+
     def key(n):
-        r = cand[n]
-        return (round(r["PR-AUC"], 4), round(r["F1"], 4), -round(r["LogLoss"], 4),
-                round(r["ROC-AUC"], 4), n)
-    return sorted(cand, key=key, reverse=True)[0]
+        r = tied[n]
+        is_single = n not in ENSEMBLE_NAMES            # prefer single models
+        return (is_single, -round(r["LogLoss"], 4), round(r["PR-AUC"], 4),
+                round(r["F1"], 4), n)
+    return sorted(tied, key=key, reverse=True)[0]
 
 
 # ── Persistence ──────────────────────────────────────────────────────────────────
